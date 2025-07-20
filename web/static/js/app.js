@@ -9,6 +9,7 @@ let currentMonitoringInterface = null;
 document.addEventListener('DOMContentLoaded', function() {
     initializeSocket();
     refreshNICs();
+    refreshTimeNICs();
     initializeCharts();
     
     // Обработчики событий
@@ -561,4 +562,139 @@ function showAlert(title, message) {
     document.getElementById('alertModalBody').textContent = message;
     const modal = new bootstrap.Modal(document.getElementById('alertModal'));
     modal.show();
+}
+
+// ===== TimeNIC функции =====
+
+// Обновление списка TimeNIC карт
+function refreshTimeNICs() {
+    fetch('/api/timenics')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateTimeNICTable(data.data);
+            } else {
+                showAlert('Ошибка', 'Не удалось загрузить список TimeNIC карт: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+        });
+}
+
+// Обновление таблицы TimeNIC карт
+function updateTimeNICTable(timenics) {
+    const tbody = document.getElementById('timenicTableBody');
+    tbody.innerHTML = '';
+    
+    if (timenics.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted">TimeNIC карты не обнаружены</td></tr>';
+        return;
+    }
+    
+    timenics.forEach(timenic => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td><strong>${timenic.name}</strong></td>
+            <td><code>${timenic.mac_address}</code></td>
+            <td>${timenic.ip_address || 'N/A'}</td>
+            <td><span class="badge ${timenic.status === 'up' ? 'bg-success' : 'bg-danger'}">${timenic.status}</span></td>
+            <td><span class="badge bg-info">${timenic.pps_mode}</span></td>
+            <td><i class="fas fa-${timenic.tcxo_enabled ? 'check text-success' : 'times text-danger'}"></i></td>
+            <td><span class="badge ${timenic.ptm_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.ptm_status}</span></td>
+            <td><span class="badge ${timenic.sma1_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.sma1_status}</span></td>
+            <td><span class="badge ${timenic.sma2_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.sma2_status}</span></td>
+            <td>${timenic.phc_offset || 'N/A'}</td>
+            <td>${timenic.temperature ? timenic.temperature.toFixed(1) + '°C' : 'N/A'}</td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary btn-sm" onclick="configureTimeNIC('${timenic.name}')">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="showTimeNICInfo('${timenic.name}')">
+                        <i class="fas fa-info"></i>
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="startTimeNICPhcSync('${timenic.name}')">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// Настройка TimeNIC карты
+function configureTimeNIC(timenicName) {
+    // Переключение на вкладку конфигурации
+    const configTab = document.getElementById('config-tab');
+    const tab = new bootstrap.Tab(configTab);
+    tab.show();
+    
+    // Загрузка информации о TimeNIC
+    loadTimeNICInfo(timenicName);
+}
+
+// Показать информацию о TimeNIC
+function showTimeNICInfo(timenicName) {
+    loadTimeNICInfo(timenicName);
+}
+
+// Загрузка информации о TimeNIC
+function loadTimeNICInfo(timenicName) {
+    fetch(`/api/timenics/${timenicName}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayTimeNICInfo(data.data);
+            } else {
+                showAlert('Ошибка', 'Не удалось загрузить информацию о TimeNIC: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+        });
+}
+
+// Отображение информации о TimeNIC
+function displayTimeNICInfo(timenic) {
+    const infoDiv = document.getElementById('nicInfo');
+    infoDiv.innerHTML = `
+        <h6>${timenic.name}</h6>
+        <table class="table table-sm">
+            <tr><td><strong>MAC адрес:</strong></td><td><code>${timenic.mac_address}</code></td></tr>
+            <tr><td><strong>IP адрес:</strong></td><td>${timenic.ip_address || 'N/A'}</td></tr>
+            <tr><td><strong>Статус:</strong></td><td><span class="badge ${timenic.status === 'up' ? 'bg-success' : 'bg-danger'}">${timenic.status}</span></td></tr>
+            <tr><td><strong>PPS режим:</strong></td><td><span class="badge bg-info">${timenic.pps_mode}</span></td></tr>
+            <tr><td><strong>TCXO:</strong></td><td><i class="fas fa-${timenic.tcxo_enabled ? 'check text-success' : 'times text-danger'}"></i></td></tr>
+            <tr><td><strong>PTM:</strong></td><td><span class="badge ${timenic.ptm_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.ptm_status}</span></td></tr>
+            <tr><td><strong>SMA1 (SDP0):</strong></td><td><span class="badge ${timenic.sma1_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.sma1_status}</span></td></tr>
+            <tr><td><strong>SMA2 (SDP1):</strong></td><td><span class="badge ${timenic.sma2_status === 'enabled' ? 'bg-success' : 'bg-secondary'}">${timenic.sma2_status}</span></td></tr>
+            <tr><td><strong>PHC Offset:</strong></td><td>${timenic.phc_offset || 'N/A'}</td></tr>
+            <tr><td><strong>PHC Frequency:</strong></td><td>${timenic.phc_frequency || 'N/A'}</td></tr>
+            <tr><td><strong>Температура:</strong></td><td>${timenic.temperature ? timenic.temperature.toFixed(1) + '°C' : 'N/A'}</td></tr>
+        </table>
+    `;
+}
+
+// Запуск синхронизации PHC для TimeNIC
+function startTimeNICPhcSync(timenicName) {
+    fetch(`/api/timenics/${timenicName}/phc-sync`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Успех', data.message);
+            refreshTimeNICs();
+        } else {
+            showAlert('Ошибка', data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+    });
 }
