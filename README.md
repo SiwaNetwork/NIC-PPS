@@ -2,6 +2,13 @@
 
 Комплексное решение для конфигурации и мониторинга сетевых карт Intel с поддержкой PPS (Pulse Per Second) и TCXO (Temperature Compensated Crystal Oscillator).
 
+**🆕 НОВОЕ: Поддержка TimeNIC (Intel I226 NIC, SMA, TCXO)**
+- Генерация 1 Гц (PPS) через SDP0 → SMA1
+- Приём внешнего PPS через SDP1 → SMA2  
+- Синхронизация PHC по внешнему сигналу
+- Поддержка PTM (PCIe Time Management)
+- Интеграция с linuxptp, testptp, ts2phc
+
 ## 🚀 Возможности
 
 - **GUI интерфейс**: Графический интерфейс для удобной настройки
@@ -18,6 +25,7 @@
 - **IGB**: Intel Gigabit Ethernet
 - **I40E**: Intel 40 Gigabit Ethernet  
 - **IXGBE**: Intel 10 Gigabit Ethernet
+- **🆕 IGC**: Intel I226 TimeNIC (с поддержкой PPS, SMA, TCXO)
 
 ## 🛠 Установка
 
@@ -56,6 +64,8 @@ python run.py --gui
 - Сохранение и загрузка конфигураций
 
 ### CLI интерфейс
+
+#### Обычные NIC карты
 ```bash
 # Список всех NIC карт
 python run.py --cli list-nics
@@ -92,6 +102,53 @@ python run.py --cli config --output config.json
 python run.py --cli config --config config.json
 ```
 
+#### TimeNIC карты (Intel I226, SMA, TCXO)
+```bash
+# Список всех TimeNIC карт
+python run.py --cli timenic list-timenics
+
+# Информация о TimeNIC карте
+python run.py --cli timenic info eth0
+
+# Настройка PPS режима (SMA1/SMA2)
+python run.py --cli timenic set-pps eth0 --mode output  # SMA1 выход
+python run.py --cli timenic set-pps eth0 --mode input   # SMA2 вход
+python run.py --cli timenic set-pps eth0 --mode both    # Оба режима
+
+# Управление TCXO
+python run.py --cli timenic set-tcxo eth0 --enable
+
+# Запуск синхронизации PHC по внешнему PPS
+python run.py --cli timenic start-phc-sync eth0
+
+# Включение PTM (PCIe Time Management)
+python run.py --cli timenic enable-ptm eth0
+
+# Список PTP устройств
+python run.py --cli timenic list-ptp
+
+# Мониторинг TimeNIC карты
+python run.py --cli timenic monitor eth0 --interval 1
+
+# Установка драйвера TimeNIC с патчем
+python run.py --cli timenic install-driver
+
+# Создание systemd сервиса для автозапуска
+python run.py --cli timenic create-service
+
+# Чтение PPS событий
+python run.py --cli timenic read-pps /dev/ptp0 --count 5
+
+# Установка периода PPS сигнала
+python run.py --cli timenic set-period /dev/ptp0 --period 1000000000
+
+# Общий статус TimeNIC системы
+python run.py --cli timenic status
+
+# Сохранение конфигурации
+python run.py --cli timenic config --output timenic_config.json
+```
+
 ### WEB интерфейс
 ```bash
 python run.py --web
@@ -114,11 +171,20 @@ python run.py --web
 - **output**: Выходной PPS сигнал
 - **both**: Оба режима одновременно
 
+### TimeNIC специфичные возможности
+- **SMA1 (SDP0)**: Выход PPS сигнала (1 Гц)
+- **SMA2 (SDP1)**: Вход внешнего PPS сигнала
+- **PHC синхронизация**: Коррекция времени по внешнему PPS
+- **PTM поддержка**: PCIe Time Management (если поддерживается CPU)
+- **TCXO управление**: Температурно-компенсированный кварцевый генератор
+
 ### Метрики мониторинга
 - **Трафик**: RX/TX байты, пакеты, ошибки
 - **Температура**: Мониторинг температуры карт
 - **Статус**: Состояние интерфейсов (up/down)
 - **Производительность**: Скорость передачи данных
+- **PTP информация**: PHC offset, frequency, PPS события
+- **SMA статус**: Состояние SMA разъемов
 
 ## 🔧 Конфигурация
 
@@ -248,6 +314,7 @@ ls -la /sys/class/net/eth0/pps*
 
 - [Инструкции по установке](INSTALL.md)
 - [Ubuntu 24.04 Setup Guide](docs/UBUNTU_24_04_SETUP.md)
+- [🆕 TimeNIC Setup Guide](docs/TIMENIC_SETUP.md)
 - [API документация](docs/README.md)
 - [Примеры конфигураций](examples/)
 

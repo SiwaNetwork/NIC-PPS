@@ -1,6 +1,17 @@
 """
-Core module for Intel NIC PPS Configuration and Monitoring Tool
+Core модуль для Intel NIC PPS Configuration and Monitoring Tool
+Поддержка TimeNIC карт с PTP, PPS, SMA и TCXO
 """
 
-__version__ = "1.0.0"
-__author__ = "Intel NIC PPS Tool Team"
+from .nic_manager import IntelNICManager, NICInfo, PPSMode
+from .timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
+
+__all__ = [
+    'IntelNICManager',
+    'NICInfo', 
+    'PPSMode',
+    'TimeNICManager',
+    'TimeNICInfo',
+    'PTPInfo',
+    'PTMStatus'
+]
