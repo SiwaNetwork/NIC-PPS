@@ -4,6 +4,7 @@
 
 ### Операционная система
 - Linux (Ubuntu 20.04+, CentOS 8+, Debian 11+)
+- **Ubuntu 24.04**: See [Ubuntu 24.04 Setup Guide](docs/UBUNTU_24_04_SETUP.md) for detailed PTP configuration
 - Поддержка sysfs
 - Права root для изменения настроек NIC карт
 
