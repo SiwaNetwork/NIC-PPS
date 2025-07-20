@@ -374,5 +374,195 @@ def status():
     console.print(layout)
 
 
+@cli.command()
+def list_ptp():
+    """Список доступных PTP устройств"""
+    import subprocess
+    import os
+    
+    console.print("[bold green]Поиск PTP устройств...[/bold green]")
+    
+    # Проверяем наличие /dev/ptp* устройств
+    ptp_devices = []
+    for i in range(10):  # Проверяем первые 10 устройств
+        ptp_path = f"/dev/ptp{i}"
+        if os.path.exists(ptp_path):
+            ptp_devices.append(ptp_path)
+    
+    if not ptp_devices:
+        console.print("[yellow]PTP устройства не найдены[/yellow]")
+        console.print("Убедитесь, что linuxptp установлен и драйверы загружены")
+        return
+    
+    # Создаем таблицу PTP устройств
+    table = Table(title="PTP устройства")
+    table.add_column("Устройство", style="cyan")
+    table.add_column("Статус", style="green")
+    table.add_column("Информация", style="yellow")
+    
+    for ptp_device in ptp_devices:
+        try:
+            # Проверяем доступность устройства
+            result = subprocess.run(['sudo', 'testptp', '-d', ptp_device, '-i'], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                status = "✓ Доступно"
+                info = "PTP Hardware Clock"
+            else:
+                status = "✗ Ошибка"
+                info = result.stderr.strip() if result.stderr else "Неизвестная ошибка"
+                
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            status = "✗ Недоступно"
+            info = "testptp не найден или нет прав доступа"
+        
+        table.add_row(ptp_device, status, info)
+    
+    console.print(table)
+    
+    # Дополнительная информация
+    console.print("\n[bold]Для настройки PTP см. Ubuntu 24.04 Setup Guide[/bold]")
+    console.print("Документация: docs/UBUNTU_24_04_SETUP.md")
+
+
+@cli.command()
+@click.argument('interface')
+@click.option('--ptp-device', default='/dev/ptp0', help='PTP устройство для использования')
+@click.option('--mode', type=click.Choice(['disabled', 'input', 'output', 'both']), 
+              required=True, help='Режим PPS')
+def set_pps_ptp(interface, ptp_device, mode):
+    """Установка режима PPS для указанной NIC карты с поддержкой PTP"""
+    with console.status(f"[bold green]Настройка PPS для {interface} с PTP устройством {ptp_device}..."):
+        nic_manager = IntelNICManager()
+        
+        # Проверяем существование карты
+        nic = nic_manager.get_nic_by_name(interface)
+        if not nic:
+            console.print(f"[red]NIC карта {interface} не найдена[/red]")
+            return
+        
+        # Проверяем доступность PTP устройства
+        import os
+        if not os.path.exists(ptp_device):
+            console.print(f"[red]PTP устройство {ptp_device} не найдено[/red]")
+            console.print("Убедитесь, что linuxptp установлен и драйверы загружены")
+            return
+        
+        # Устанавливаем режим
+        pps_mode = PPSMode(mode)
+        success = nic_manager.set_pps_mode(interface, pps_mode)
+        
+        if success:
+            console.print(f"[green]PPS режим успешно изменен на {mode}[/green]")
+            console.print(f"[green]Используется PTP устройство: {ptp_device}[/green]")
+        else:
+            console.print(f"[red]Ошибка при изменении PPS режима[/red]")
+
+
+@cli.command()
+@click.argument('interface')
+@click.option('--interval', '-i', default=1, help='Интервал обновления в секундах')
+def monitor_ptp(interface, interval):
+    """Мониторинг PTP синхронизации для указанной NIC карты"""
+    import subprocess
+    import time
+    
+    console.print(f"[bold green]Мониторинг PTP синхронизации для {interface}[/bold green]")
+    console.print(f"Интервал: {interval}с")
+    console.print()
+    
+    try:
+        with Live(console=console, refresh_per_second=1) as live:
+            while True:
+                # Получаем информацию о PTP синхронизации
+                try:
+                    result = subprocess.run(['sudo', 'phc2sys', '-s', '/dev/ptp0', '-c', 'CLOCK_REALTIME', '-O', '0'], 
+                                          capture_output=True, text=True, timeout=2)
+                    
+                    if result.returncode == 0:
+                        # Парсим вывод для получения offset
+                        lines = result.stdout.split('\n')
+                        offset_info = "PTP синхронизирован"
+                        for line in lines:
+                            if 'offset' in line.lower():
+                                offset_info = line.strip()
+                                break
+                    else:
+                        offset_info = "PTP не синхронизирован"
+                        
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    offset_info = "phc2sys недоступен"
+                
+                # Создаем таблицу мониторинга
+                table = Table(title=f"PTP Мониторинг {interface}")
+                table.add_column("Метрика", style="cyan")
+                table.add_column("Значение", style="green")
+                
+                table.add_row("PTP статус", offset_info)
+                table.add_row("Время", time.strftime("%H:%M:%S"))
+                
+                live.update(table)
+                time.sleep(interval)
+                
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Мониторинг остановлен[/yellow]")
+
+
+@cli.command()
+@click.option('--ptp', is_flag=True, help='Включить мониторинг PTP')
+@click.option('--pps', is_flag=True, help='Включить мониторинг PPS')
+@click.option('--temperature', is_flag=True, help='Включить мониторинг температуры')
+@click.option('--interval', '-i', default=1, help='Интервал обновления в секундах')
+def monitor_all(ptp, pps, temperature, interval):
+    """Комплексный мониторинг всех параметров"""
+    nic_manager = IntelNICManager()
+    nics = nic_manager.get_all_nics()
+    
+    if not nics:
+        console.print("[red]Intel NIC карты не обнаружены[/red]")
+        return
+    
+    console.print(f"[bold green]Комплексный мониторинг[/bold green]")
+    console.print(f"Интервал: {interval}с")
+    console.print(f"PTP: {'✓' if ptp else '✗'}, PPS: {'✓' if pps else '✗'}, Температура: {'✓' if temperature else '✗'}")
+    console.print()
+    
+    try:
+        with Live(console=console, refresh_per_second=1) as live:
+            while True:
+                # Создаем комплексную таблицу
+                table = Table(title="Комплексный мониторинг")
+                table.add_column("Интерфейс", style="cyan")
+                table.add_column("Статус", style="green")
+                table.add_column("PPS", style="yellow")
+                table.add_column("TCXO", style="blue")
+                table.add_column("Температура", style="orange")
+                table.add_column("PTP", style="magenta")
+                
+                for nic in nics:
+                    status_color = "green" if nic.status == "up" else "red"
+                    tcxo_text = "✓" if nic.tcxo_enabled else "✗"
+                    temp_text = f"{nic.temperature:.1f}°C" if nic.temperature else "N/A"
+                    
+                    # PTP статус (упрощенный)
+                    ptp_status = "✓" if ptp else "✗"
+                    
+                    table.add_row(
+                        nic.name,
+                        f"[{status_color}]{nic.status}[/{status_color}]",
+                        nic.pps_mode.value,
+                        tcxo_text,
+                        temp_text,
+                        ptp_status
+                    )
+                
+                live.update(table)
+                time.sleep(interval)
+                
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Мониторинг остановлен[/yellow]")
+
+
 if __name__ == "__main__":
     cli()
