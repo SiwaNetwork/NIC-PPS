@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intel NIC PPS Configuration and Monitoring Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        .status-up { color: #28a745; }
+        .status-down { color: #dc3545; }
+        .card-header { background-color: #f8f9fa; }
+        .monitoring-card { height: 400px; }
+        .chart-container { position: relative; height: 300px; }
+        .loading { opacity: 0.5; }
+        .nic-table { font-size: 0.9rem; }
+        .config-section { margin-bottom: 2rem; }
+        .btn-group-sm .btn { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-network-wired"></i>
+                Intel NIC PPS Tool
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text" id="connection-status">
+                    <i class="fas fa-circle text-warning"></i> Подключение...
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <!-- Вкладки -->
+        <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                    <i class="fas fa-list"></i> Обзор
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config" type="button" role="tab">
+                    <i class="fas fa-cog"></i> Конфигурация
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="monitoring-tab" data-bs-toggle="tab" data-bs-target="#monitoring" type="button" role="tab">
+                    <i class="fas fa-chart-line"></i> Мониторинг
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="mainTabsContent">
+            <!-- Вкладка Обзор -->
+            <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-network-wired"></i> Обнаруженные NIC карты
+                                </h5>
+                                <button class="btn btn-sm btn-outline-primary" onclick="refreshNICs()">
+                                    <i class="fas fa-sync-alt"></i> Обновить
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover nic-table" id="nicTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Имя</th>
+                                                <th>MAC адрес</th>
+                                                <th>IP адрес</th>
+                                                <th>Статус</th>
+                                                <th>Скорость</th>
+                                                <th>PPS режим</th>
+                                                <th>TCXO</th>
+                                                <th>Температура</th>
+                                                <th>Действия</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="nicTableBody">
+                                            <tr>
+                                                <td colspan="9" class="text-center">
+                                                    <div class="spinner-border spinner-border-sm" role="status">
+                                                        <span class="visually-hidden">Загрузка...</span>
+                                                    </div>
+                                                    Загрузка NIC карт...
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Вкладка Конфигурация -->
+            <div class="tab-pane fade" id="config" role="tabpanel">
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-cog"></i> Настройка NIC карты
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="configForm">
+                                    <div class="mb-3">
+                                        <label for="nicSelect" class="form-label">Выберите NIC карту:</label>
+                                        <select class="form-select" id="nicSelect" required>
+                                            <option value="">Выберите карту...</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="config-section">
+                                        <h6>Настройки PPS</h6>
+                                        <div class="mb-3">
+                                            <label for="ppsMode" class="form-label">PPS режим:</label>
+                                            <select class="form-select" id="ppsMode" required>
+                                                <option value="disabled">Отключен</option>
+                                                <option value="input">Входной</option>
+                                                <option value="output">Выходной</option>
+                                                <option value="both">Оба</option>
+                                            </select>
+                                        </div>
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="applyPPS()">
+                                            <i class="fas fa-save"></i> Применить PPS
+                                        </button>
+                                    </div>
+
+                                    <div class="config-section">
+                                        <h6>Настройки TCXO</h6>
+                                        <div class="mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="tcxoEnabled">
+                                                <label class="form-check-label" for="tcxoEnabled">
+                                                    Включить TCXO
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="applyTCXO()">
+                                            <i class="fas fa-save"></i> Применить TCXO
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-info-circle"></i> Информация о карте
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="nicInfo">
+                                    <p class="text-muted">Выберите NIC карту для просмотра информации</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-download"></i> Управление конфигурацией
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-outline-primary btn-sm" onclick="saveConfig()">
+                                        <i class="fas fa-download"></i> Сохранить конфигурацию
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="loadConfig()">
+                                        <i class="fas fa-upload"></i> Загрузить конфигурацию
+                                    </button>
+                                    <input type="file" id="configFile" accept=".json" style="display: none;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Вкладка Мониторинг -->
+            <div class="tab-pane fade" id="monitoring" role="tabpanel">
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-chart-line"></i> Мониторинг производительности
+                                </h5>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-success" id="startMonitoring" onclick="startMonitoring()">
+                                        <i class="fas fa-play"></i> Запустить
+                                    </button>
+                                    <button class="btn btn-danger" id="stopMonitoring" onclick="stopMonitoring()" disabled>
+                                        <i class="fas fa-stop"></i> Остановить
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="monitorNicSelect" class="form-label">Выберите NIC для мониторинга:</label>
+                                            <select class="form-select" id="monitorNicSelect">
+                                                <option value="">Выберите карту...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card monitoring-card">
+                                            <div class="card-header">
+                                                <h6 class="mb-0">Трафик (байт/с)</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="chart-container">
+                                                    <canvas id="trafficChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card monitoring-card">
+                                            <div class="card-header">
+                                                <h6 class="mb-0">Температура (°C)</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="chart-container">
+                                                    <canvas id="temperatureChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6 class="mb-0">Статистика</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="statsDisplay">
+                                                    <p class="text-muted">Выберите NIC карту для просмотра статистики</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальные окна -->
+    <div class="modal fade" id="alertModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="alertModalTitle">Уведомление</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="alertModalBody">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
