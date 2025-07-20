@@ -16,6 +16,11 @@ def check_dependencies():
         'PyQt6', 'Flask', 'click', 'rich', 'psutil', 'netifaces'
     ]
     
+    # TimeNIC specific dependencies
+    timenic_modules = [
+        'gpiod', 'pyserial'
+    ]
+    
     missing_modules = []
     for module in required_modules:
         try:
@@ -23,10 +28,22 @@ def check_dependencies():
         except ImportError:
             missing_modules.append(module)
     
+    # Проверяем TimeNIC модули отдельно
+    missing_timenic_modules = []
+    for module in timenic_modules:
+        try:
+            __import__(module)
+        except ImportError:
+            missing_timenic_modules.append(module)
+    
     if missing_modules:
-        print(f"Ошибка: Отсутствуют необходимые модули: {', '.join(missing_modules)}")
+        print(f"Ошибка: Отсутствуют основные модули: {', '.join(missing_modules)}")
         print("Установите зависимости: pip install -r requirements.txt")
         return False
+    
+    if missing_timenic_modules:
+        print(f"Предупреждение: Отсутствуют модули для TimeNIC: {', '.join(missing_timenic_modules)}")
+        print("Для полной функциональности TimeNIC установите: pip install gpiod pyserial")
     
     return True
 
@@ -55,8 +72,15 @@ def run_cli(args):
     """Запуск CLI интерфейса"""
     print("Запуск CLI интерфейса...")
     try:
-        cli_args = ["cli/main.py"] + args
-        subprocess.run([sys.executable] + cli_args, check=True)
+        # Проверяем, есть ли команда timenic
+        if args and args[0] == 'timenic':
+            # Запускаем TimeNIC CLI
+            cli_args = ["cli/timenic_cli.py"] + args[1:]
+            subprocess.run([sys.executable] + cli_args, check=True)
+        else:
+            # Запускаем обычный CLI
+            cli_args = ["cli/main.py"] + args
+            subprocess.run([sys.executable] + cli_args, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Ошибка запуска CLI: {e}")
         return False
@@ -79,6 +103,7 @@ def show_help():
     """Показать справку"""
     help_text = """
 Intel NIC PPS Configuration and Monitoring Tool
+Поддержка TimeNIC (Intel I226 NIC, SMA, TCXO)
 
 Использование:
     python run.py [опции] [команда]
@@ -93,10 +118,12 @@ Intel NIC PPS Configuration and Monitoring Tool
 Примеры:
     python run.py --gui
     python run.py --cli list-nics
-    python run.py --cli monitor eth0 --interval 1
+    python run.py --cli timenic list-timenics
+    python run.py --cli timenic set-pps eth0 --mode output
+    python run.py --cli timenic monitor eth0 --interval 1
     python run.py --web
 
-CLI команды:
+CLI команды (обычные NIC):
     list-nics          Список всех NIC карт
     info <interface>   Информация о карте
     set-pps <interface> --mode <mode>  Установка PPS режима
@@ -105,6 +132,22 @@ CLI команды:
     status             Общий статус
     config --output <file>  Сохранение конфигурации
     config --config <file>   Загрузка конфигурации
+
+CLI команды (TimeNIC):
+    timenic list-timenics    Список всех TimeNIC карт
+    timenic info <interface> Информация о TimeNIC карте
+    timenic set-pps <interface> --mode <mode>  Установка PPS режима
+    timenic set-tcxo <interface> --enable/--disable  Управление TCXO
+    timenic start-phc-sync <interface>  Запуск синхронизации PHC
+    timenic enable-ptm <interface>  Включение PTM
+    timenic list-ptp        Список PTP устройств
+    timenic monitor <interface> --interval <sec>  Мониторинг
+    timenic install-driver  Установка драйвера TimeNIC
+    timenic create-service  Создание systemd сервиса
+    timenic read-pps <ptp_device> --count <count>  Чтение PPS событий
+    timenic set-period <ptp_device> --period <ns>  Установка периода
+    timenic status          Общий статус TimeNIC системы
+    timenic config --output <file>  Сохранение конфигурации
     """
     print(help_text)
 
@@ -138,16 +181,46 @@ def check_system():
         print(f"✗ Ошибка при проверке NIC карт: {e}")
         return False
     
-    # Проверка поддержки PPS
+    # Проверка TimeNIC карт
     try:
-        result = subprocess.run(["ethtool", "--version"], 
-                              capture_output=True, text=True)
-        if result.returncode == 0:
-            print("✓ ethtool доступен")
+        from core.timenic_manager import TimeNICManager
+        timenic_manager = TimeNICManager()
+        timenics = timenic_manager.get_all_timenics()
+        
+        if timenics:
+            print(f"✓ Обнаружено TimeNIC карт: {len(timenics)}")
+            for timenic in timenics:
+                print(f"  - {timenic.name}: {timenic.mac_address} (PTP: {timenic.ptp_device or 'Нет'})")
         else:
-            print("⚠ ethtool не найден")
-    except FileNotFoundError:
-        print("⚠ ethtool не установлен")
+            print("⚠ TimeNIC карты не обнаружены")
+            print("  Убедитесь, что у вас установлена TimeNIC карта с драйвером igc")
+    except Exception as e:
+        print(f"✗ Ошибка при проверке TimeNIC карт: {e}")
+    
+    # Проверка PTP устройств
+    try:
+        ptp_devices = list(Path("/dev").glob("ptp*"))
+        if ptp_devices:
+            print(f"✓ Обнаружено PTP устройств: {len(ptp_devices)}")
+            for ptp in ptp_devices:
+                print(f"  - {ptp}")
+        else:
+            print("⚠ PTP устройства не обнаружены")
+    except Exception as e:
+        print(f"✗ Ошибка при проверке PTP устройств: {e}")
+    
+    # Проверка системных утилит
+    timenic_utils = ['testptp', 'ts2phc', 'phc_ctl', 'ethtool']
+    for util in timenic_utils:
+        try:
+            result = subprocess.run([util, "--version"], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"✓ {util} доступен")
+            else:
+                print(f"⚠ {util} не найден")
+        except FileNotFoundError:
+            print(f"⚠ {util} не установлен")
     
     print("Проверка завершена")
     return True

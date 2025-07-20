@@ -1,0 +1,73 @@
+{
+  "timenic_config": {
+    "description": "Конфигурация TimeNIC карт (Intel I226 NIC, SMA, TCXO)",
+    "version": "1.0.0",
+    "interfaces": [
+      {
+        "interface": "enp1s0",
+        "description": "TimeNIC карта с SMA разъемами",
+        "pps_mode": "both",
+        "tcxo_enabled": true,
+        "ptm_enabled": false,
+        "sma1_config": {
+          "enabled": true,
+          "mode": "output",
+          "period_ns": 1000000000,
+          "description": "SMA1 (SDP0) - выход PPS 1 Гц"
+        },
+        "sma2_config": {
+          "enabled": true,
+          "mode": "input",
+          "description": "SMA2 (SDP1) - вход внешнего PPS"
+        },
+        "phc_sync": {
+          "enabled": true,
+          "source": "external_pps",
+          "pin_index": 1,
+          "algorithm": "ts2phc"
+        },
+        "ptp_device": "/dev/ptp0",
+        "monitoring": {
+          "enabled": true,
+          "interval_seconds": 1,
+          "log_level": 7
+        }
+      }
+    ],
+    "systemd_service": {
+      "enabled": true,
+      "name": "ptp-nic-setup",
+      "description": "Setup PTP on TimeNIC PCIe card",
+      "commands": [
+        "/usr/bin/testptp -d /dev/ptp0 -L0,2",
+        "/usr/bin/testptp -d /dev/ptp0 -p 1000000000",
+        "/usr/bin/testptp -d /dev/ptp0 -L1,1",
+        "/usr/sbin/ts2phc -c /dev/ptp0 -s generic --ts2phc.pin_index 1 -m -l 7"
+      ]
+    },
+    "ptm_config": {
+      "enabled": false,
+      "description": "PCIe Time Management (требует поддержки CPU)",
+      "supported_cpus": [
+        "Intel Xeon E5-2600 v4",
+        "Intel Xeon E5-2600 v3",
+        "Intel Xeon Scalable Processors"
+      ]
+    },
+    "monitoring_config": {
+      "metrics": [
+        "pps_events",
+        "phc_offset",
+        "phc_frequency",
+        "temperature",
+        "sma_status",
+        "ptm_status"
+      ],
+      "alerts": {
+        "phc_offset_threshold_ns": 1000,
+        "temperature_threshold_celsius": 85,
+        "pps_loss_timeout_seconds": 5
+      }
+    }
+  }
+}

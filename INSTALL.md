@@ -11,11 +11,13 @@
 ### Аппаратные требования
 - Intel сетевые карты с поддержкой PPS
 - Поддерживаемые драйверы: IGB, I40E, IXGBE
+- **🆕 TimeNIC карты**: Intel I226 NIC с SMA разъемами и TCXO
 
 ### Программные требования
 - Python 3.8+
 - pip (менеджер пакетов Python)
 - ethtool (для работы с PPS)
+- **🆕 TimeNIC требования**: linuxptp, testptp, ts2phc, phc_ctl
 
 ## Установка
 
@@ -56,8 +58,11 @@ sudo pacman -S ethtool
 # Проверка системы
 python run.py --check
 
-# Тест CLI
+# Тест CLI (обычные NIC)
 python run.py --cli list-nics
+
+# Тест CLI (TimeNIC)
+python run.py --cli timenic list-timenics
 
 # Тест GUI
 python run.py --gui
@@ -76,6 +81,7 @@ sudo tee /etc/udev/rules.d/99-intel-nic.rules > /dev/null << EOF
 SUBSYSTEM=="net", KERNEL=="eth*", ATTR{device/driver}=="*igb*", MODE="0666"
 SUBSYSTEM=="net", KERNEL=="eth*", ATTR{device/driver}=="*i40e*", MODE="0666"
 SUBSYSTEM=="net", KERNEL=="eth*", ATTR{device/driver}=="*ixgbe*", MODE="0666"
+SUBSYSTEM=="net", KERNEL=="eth*", ATTR{device/driver}=="*igc*", MODE="0666"
 EOF
 
 # Перезагрузка udev правил
@@ -223,6 +229,63 @@ deactivate  # если виртуальное окружение активно
 rm -rf venv/
 ```
 
+## 🆕 Установка TimeNIC
+
+### Быстрая установка TimeNIC
+```bash
+# Автоматическая установка TimeNIC
+sudo ./scripts/setup_timenic.sh
+```
+
+### Ручная установка TimeNIC
+```bash
+# Установка зависимостей
+sudo apt update
+sudo apt install -y openssh-server net-tools gcc vim dkms linuxptp \
+    linux-headers-$(uname -r) libgpiod-dev pkg-config build-essential git
+
+# Сборка testptp
+cd /tmp
+mkdir testptp && cd testptp
+wget https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/tools/testing/selftests/ptp/testptp.c
+wget https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/include/uapi/linux/ptp_clock.h
+sudo cp ptp_clock.h /usr/include/linux/
+gcc -Wall -lrt testptp.c -o testptp
+sudo cp testptp /usr/bin/
+
+# Установка драйвера TimeNIC
+cd ~
+wget https://github.com/Time-Appliances-Project/Products/raw/main/TimeNIC/intel-igc-ppsfix_ubuntu.zip
+unzip intel-igc-ppsfix_ubuntu.zip
+cd intel-igc-ppsfix
+sudo dkms remove igc -v 5.4.0-7642.46
+sudo dkms add .
+sudo dkms build --force igc -v 5.4.0-7642.46
+sudo dkms install --force igc -v 5.4.0-7642.46
+
+# Настройка PPS
+sudo testptp -d /dev/ptp0 -L0,2  # SMA1 выход
+sudo testptp -d /dev/ptp0 -p 1000000000  # 1 Гц
+sudo testptp -d /dev/ptp0 -L1,1  # SMA2 вход
+```
+
+### Проверка TimeNIC
+```bash
+# Проверка TimeNIC карт
+python run.py --cli timenic list-timenics
+
+# Информация о TimeNIC карте
+python run.py --cli timenic info eth0
+
+# Настройка PPS
+python run.py --cli timenic set-pps eth0 --mode both
+
+# Мониторинг
+python run.py --cli timenic monitor eth0 --interval 1
+```
+
+Подробная документация: [TimeNIC Setup Guide](docs/TIMENIC_SETUP.md)
+
 ## Поддержка
 
 При возникновении проблем:
@@ -231,3 +294,12 @@ rm -rf venv/
 2. Запустите проверку системы: `python run.py --check`
 3. Проверьте документацию в папке `docs/`
 4. Создайте issue в репозитории проекта
+
+### Поддержка TimeNIC
+При проблемах с TimeNIC:
+
+1. Проверьте драйвер: `modinfo igc | grep filename`
+2. Проверьте PTP устройства: `ls /dev/ptp*`
+3. Проверьте утилиты: `which testptp ts2phc phc_ctl`
+4. Запустите диагностику: `python run.py --cli timenic status`
+5. Проверьте документацию: [TimeNIC Setup Guide](docs/TIMENIC_SETUP.md)
