@@ -1,0 +1,17 @@
+[
+    {
+        "interface": "eth0",
+        "pps_mode": "input",
+        "tcxo_enabled": true
+    },
+    {
+        "interface": "eth1",
+        "pps_mode": "both",
+        "tcxo_enabled": false
+    },
+    {
+        "interface": "eth2",
+        "pps_mode": "output",
+        "tcxo_enabled": true
+    }
+]
