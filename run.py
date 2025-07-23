@@ -18,7 +18,7 @@ def check_dependencies():
     
     # TimeNIC specific dependencies
     timenic_modules = [
-        'gpiod', 'pyserial'
+        'gpiod', 'serial'  # pyserial imports as 'serial'
     ]
     
     missing_modules = []
@@ -81,7 +81,19 @@ def run_cli(args):
         else:
             # Запускаем обычный CLI
             cli_script = os.path.join(os.path.dirname(__file__), "cli", "main.py")
-            subprocess.run([sys.executable, cli_script] + args, check=True)
+            result = subprocess.run([sys.executable, cli_script] + args, capture_output=True, text=True)
+            
+            # Выводим результат
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+                
+            # Click возвращает код 2 при показе справки без команды - это нормально
+            if result.returncode == 2 and not args:
+                return True
+            elif result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, result.args)
     except subprocess.CalledProcessError as e:
         print(f"Ошибка запуска CLI: {e}")
         return False
