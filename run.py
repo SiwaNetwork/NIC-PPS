@@ -119,35 +119,52 @@ Intel NIC PPS Configuration and Monitoring Tool
     python run.py --gui
     python run.py --cli list-nics
     python run.py --cli timenic list-timenics
-    python run.py --cli timenic set-pps eth0 --mode output
-    python run.py --cli timenic monitor eth0 --interval 1
+    python run.py --cli timenic set-pps enp3s0 --mode output
+    python run.py --cli timenic read-pps /dev/ptp0 --count 5
+    python run.py --cli timenic set-period /dev/ptp0 --period 1000000000
+    python run.py --cli timenic sync-phc enp3s0
+    python run.py --cli timenic monitor enp3s0 --interval 1
     python run.py --web
 
 CLI команды (обычные NIC):
     list-nics          Список всех NIC карт
     info <interface>   Информация о карте
     set-pps <interface> --mode <mode>  Установка PPS режима
-    set-tcxo <interface> --enable/--disable  Управление TCXO
     monitor <interface> --interval <sec>  Мониторинг
     status             Общий статус
-    config --output <file>  Сохранение конфигурации
-    config --config <file>   Загрузка конфигурации
 
 CLI команды (TimeNIC):
     timenic list-timenics    Список всех TimeNIC карт
     timenic info <interface> Информация о TimeNIC карте
     timenic set-pps <interface> --mode <mode>  Установка PPS режима
-    timenic set-tcxo <interface> --enable/--disable  Управление TCXO
-    timenic start-phc-sync <interface>  Запуск синхронизации PHC
-    timenic enable-ptm <interface>  Включение PTM
+        Режимы: disabled, input (SMA2), output (SMA1), both
     timenic list-ptp        Список PTP устройств
-    timenic monitor <interface> --interval <sec>  Мониторинг
-    timenic install-driver  Установка драйвера TimeNIC
-    timenic create-service  Создание systemd сервиса
     timenic read-pps <ptp_device> --count <count>  Чтение PPS событий
-    timenic set-period <ptp_device> --period <ns>  Установка периода
+        Пример: timenic read-pps /dev/ptp0 --count 5
+    timenic set-period <ptp_device> --period <ns>  Установка периода PPS
+        Пример: timenic set-period /dev/ptp0 --period 1000000000 (1 Гц)
+    timenic sync-phc <interface>  Синхронизация PHC с системным временем
+    timenic start-phc-sync <interface>  Запуск синхронизации PHC по внешнему PPS
+    timenic enable-ptm <interface>  Включение PTM
+    timenic monitor <interface> --interval <sec>  Мониторинг
+    timenic create-service  Создание systemd сервиса
     timenic status          Общий статус TimeNIC системы
-    timenic config --output <file>  Сохранение конфигурации
+
+Настройка TimeNIC по гайду:
+    1. Включение PPS выхода на SMA1 (1 Гц):
+       python run.py --cli timenic set-pps enp3s0 --mode output
+    
+    2. Включение PPS входа на SMA2:
+       python run.py --cli timenic set-pps enp3s0 --mode input
+    
+    3. Чтение внешних PPS событий:
+       python run.py --cli timenic read-pps /dev/ptp0 --count 5
+    
+    4. Синхронизация PHC по внешнему PPS:
+       python run.py --cli timenic start-phc-sync enp3s0
+    
+    5. Создание автозапуска:
+       sudo python run.py --cli timenic create-service
     """
     print(help_text)
 
