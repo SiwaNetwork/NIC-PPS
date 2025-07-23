@@ -74,13 +74,14 @@ def run_cli(args):
     try:
         # Проверяем, есть ли команда timenic
         if args and args[0] == 'timenic':
-            # Запускаем TimeNIC CLI
-            cli_args = ["cli/timenic_cli.py"] + args[1:]
-            subprocess.run([sys.executable] + cli_args, check=True)
+            # Запускаем TimeNIC CLI с правильными аргументами
+            cli_script = os.path.join(os.path.dirname(__file__), "cli", "timenic_cli.py")
+            # Передаем все аргументы после 'timenic' напрямую в Click CLI
+            subprocess.run([sys.executable, cli_script] + args[1:], check=True)
         else:
             # Запускаем обычный CLI
-            cli_args = ["cli/main.py"] + args
-            subprocess.run([sys.executable] + cli_args, check=True)
+            cli_script = os.path.join(os.path.dirname(__file__), "cli", "main.py")
+            subprocess.run([sys.executable, cli_script] + args, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Ошибка запуска CLI: {e}")
         return False

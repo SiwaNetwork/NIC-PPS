@@ -347,13 +347,9 @@ class IntelNICManager:
                 except Exception:
                     pass
             
-            # Пробуем через ethtool
-            try:
-                subprocess.run(["ethtool", "-T", interface, "--pps-output"], 
-                             check=True, timeout=10)
-                return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+            # ethtool не поддерживает управление PPS напрямую
+            # Используем testptp через PTP устройство
+            return False
                 
         except Exception:
             pass
