@@ -363,17 +363,76 @@ def monitor(interface, interval):
                 table.add_row("RX Bytes", f"{stats['rx_bytes']:,}")
             if 'tx_bytes' in stats:
                 table.add_row("TX Bytes", f"{stats['tx_bytes']:,}")
+            if 'rx_speed' in stats:
+                rx_mbps = stats['rx_speed'] * 8 / 1_000_000  # Конвертируем в Mbps
+                table.add_row("RX Speed", f"{rx_mbps:.2f} Mbps")
+            if 'tx_speed' in stats:
+                tx_mbps = stats['tx_speed'] * 8 / 1_000_000  # Конвертируем в Mbps
+                table.add_row("TX Speed", f"{tx_mbps:.2f} Mbps")
+            if 'rx_pps' in stats:
+                table.add_row("RX PPS", f"{stats['rx_pps']:.0f}")
+            if 'tx_pps' in stats:
+                table.add_row("TX PPS", f"{stats['tx_pps']:.0f}")
+            if 'rx_errors' in stats:
+                table.add_row("RX Errors", f"{stats['rx_errors']:,}")
+            if 'tx_errors' in stats:
+                table.add_row("TX Errors", f"{stats['tx_errors']:,}")
             
             return table
         
-        with Live(generate_table(), refresh_per_second=1/interval) as live:
-            try:
-                while True:
-                    live.update(generate_table())
-                    import time
-                    time.sleep(interval)
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Мониторинг остановлен[/yellow]")
+        # Используем новый метод monitor_traffic
+        def update_display(stats):
+            timenic = manager.get_timenic_by_name(interface)
+            if not timenic:
+                return
+                
+            table = Table(title=f"TimeNIC {interface} - Мониторинг")
+            table.add_column("Параметр", style="cyan")
+            table.add_column("Значение", style="green")
+            
+            table.add_row("Статус", stats.get('status', 'unknown'))
+            table.add_row("Скорость", stats.get('speed', 'unknown'))
+            table.add_row("PPS режим", stats.get('pps_mode', 'disabled'))
+            table.add_row("TCXO", "Включен" if stats.get('tcxo_enabled', False) else "Выключен")
+            table.add_row("PTM", stats.get('ptm_status', 'unsupported'))
+            table.add_row("SMA1", stats.get('sma1_status', 'disabled'))
+            table.add_row("SMA2", stats.get('sma2_status', 'disabled'))
+            
+            if 'temperature' in stats and stats['temperature']:
+                table.add_row("Температура", f"{stats['temperature']:.1f}°C")
+            if 'phc_offset' in stats and stats['phc_offset']:
+                table.add_row("PHC Offset", str(stats['phc_offset']))
+            if 'phc_frequency' in stats and stats['phc_frequency']:
+                table.add_row("PHC Frequency", str(stats['phc_frequency']))
+            
+            # Статистика трафика
+            if 'rx_bytes' in stats:
+                table.add_row("RX Bytes", f"{stats['rx_bytes']:,}")
+            if 'tx_bytes' in stats:
+                table.add_row("TX Bytes", f"{stats['tx_bytes']:,}")
+            if 'rx_speed' in stats:
+                rx_mbps = stats['rx_speed'] * 8 / 1_000_000
+                table.add_row("RX Speed", f"{rx_mbps:.2f} Mbps")
+            if 'tx_speed' in stats:
+                tx_mbps = stats['tx_speed'] * 8 / 1_000_000
+                table.add_row("TX Speed", f"{tx_mbps:.2f} Mbps")
+            if 'rx_pps' in stats:
+                table.add_row("RX PPS", f"{stats['rx_pps']:.0f}")
+            if 'tx_pps' in stats:
+                table.add_row("TX PPS", f"{stats['tx_pps']:.0f}")
+            if 'rx_errors' in stats:
+                table.add_row("RX Errors", f"{stats['rx_errors']:,}")
+            if 'tx_errors' in stats:
+                table.add_row("TX Errors", f"{stats['tx_errors']:,}")
+                
+            console.clear()
+            console.print(table)
+        
+        try:
+            # Запускаем мониторинг с callback функцией
+            manager.monitor_traffic(interface, callback=update_display, interval=interval)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Мониторинг остановлен[/yellow]")
                 
     except Exception as e:
         console.print(f"[red]Ошибка: {e}[/red]")

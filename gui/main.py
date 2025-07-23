@@ -881,6 +881,7 @@ class MainWindow(QMainWindow):
         self.monitor_widget.update_monitor_nic_list()
         
         # Обновляем TimeNIC карты
+        self.timenic_manager.refresh()  # Обновляем список устройств
         timenics = self.timenic_manager.get_all_timenics()
         self.timenic_table.update_data(timenics)
         self.timenic_config_widget.update_timenic_list()
