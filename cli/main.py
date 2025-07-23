@@ -52,7 +52,7 @@ def list_nics(output):
     table.add_column("Скорость", style="blue")
     table.add_column("PPS режим", style="red")
     table.add_column("TCXO", style="white")
-    table.add_column("Температура", style="orange")
+    table.add_column("Температура", style="bright_yellow")
     
     for nic in nics:
         status_color = "green" if nic.status == "up" else "red"
