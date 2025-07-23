@@ -223,18 +223,6 @@ class TimeNICTableWidget(QTableWidget):
             self.setItem(row, 10, QTableWidgetItem(temp_text))
         
         self.resizeColumnsToContents()
-            self.setItem(row, 6, QTableWidgetItem(nic.pps_mode.value))
-            
-            # TCXO с чекбоксом
-            tcxo_item = QTableWidgetItem()
-            tcxo_item.setCheckState(Qt.CheckState.Checked if nic.tcxo_enabled else Qt.CheckState.Unchecked)
-            self.setItem(row, 7, tcxo_item)
-            
-            # Температура
-            temp_text = f"{nic.temperature:.1f}°C" if nic.temperature else "N/A"
-            self.setItem(row, 8, QTableWidgetItem(temp_text))
-        
-        self.resizeColumnsToContents()
 
 
 class ConfigurationWidget(QWidget):
