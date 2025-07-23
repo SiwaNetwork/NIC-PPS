@@ -543,6 +543,11 @@ class MonitoringWidget(QWidget):
         self.timenic_manager = timenic_manager
         self.monitoring_data = {}
         self.timenic_monitoring_data = {}
+        
+        # Инициализация данных для графиков TimeNIC
+        self.timenic_traffic_data = {'rx': [], 'tx': [], 'time': []}
+        self.timenic_temp_data = {'temp': [], 'time': []}
+        
         self.setup_ui()
         
         # Запускаем поток мониторинга
@@ -568,6 +573,20 @@ class MonitoringWidget(QWidget):
         monitor_group.setLayout(monitor_layout)
         layout.addWidget(monitor_group)
         
+        # Добавляем выбор TimeNIC для мониторинга
+        if self.timenic_manager:
+            timenic_monitor_group = QGroupBox("Мониторинг TimeNIC")
+            timenic_monitor_layout = QHBoxLayout()
+            
+            self.monitor_timenic_combo = QComboBox()
+            self.monitor_timenic_combo.currentTextChanged.connect(self.on_monitor_timenic_selected)
+            timenic_monitor_layout.addWidget(QLabel("TimeNIC карта:"))
+            timenic_monitor_layout.addWidget(self.monitor_timenic_combo)
+            timenic_monitor_layout.addStretch()
+            
+            timenic_monitor_group.setLayout(timenic_monitor_layout)
+            layout.addWidget(timenic_monitor_group)
+        
         # Графики
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
@@ -587,6 +606,26 @@ class MonitoringWidget(QWidget):
         
         layout.addWidget(splitter)
         
+        # Графики для TimeNIC
+        if self.timenic_manager:
+            timenic_splitter = QSplitter(Qt.Orientation.Horizontal)
+            
+            # График трафика TimeNIC
+            timenic_traffic_group = QGroupBox("Трафик TimeNIC")
+            self.timenic_traffic_canvas = self.create_timenic_traffic_chart()
+            timenic_traffic_group.setLayout(QVBoxLayout())
+            timenic_traffic_group.layout().addWidget(self.timenic_traffic_canvas)
+            timenic_splitter.addWidget(timenic_traffic_group)
+            
+            # График температуры TimeNIC
+            timenic_temp_group = QGroupBox("Температура TimeNIC")
+            self.timenic_temp_canvas = self.create_timenic_temperature_chart()
+            timenic_temp_group.setLayout(QVBoxLayout())
+            timenic_temp_group.layout().addWidget(self.timenic_temp_canvas)
+            timenic_splitter.addWidget(timenic_temp_group)
+            
+            layout.addWidget(timenic_splitter)
+        
         # Статистика
         stats_group = QGroupBox("Статистика")
         self.stats_text = QTextEdit()
@@ -596,10 +635,24 @@ class MonitoringWidget(QWidget):
         stats_group.layout().addWidget(self.stats_text)
         layout.addWidget(stats_group)
         
+        # Добавляем статистику TimeNIC
+        if self.timenic_manager:
+            timenic_stats_group = QGroupBox("Статистика TimeNIC")
+            self.timenic_stats_text = QTextEdit()
+            self.timenic_stats_text.setMaximumHeight(150)
+            self.timenic_stats_text.setReadOnly(True)
+            timenic_stats_group.setLayout(QVBoxLayout())
+            timenic_stats_group.layout().addWidget(self.timenic_stats_text)
+            layout.addWidget(timenic_stats_group)
+        
         self.setLayout(layout)
         
         # Обновляем список NIC карт
         self.update_monitor_nic_list()
+        
+        # Обновляем список TimeNIC карт
+        if self.timenic_manager:
+            self.update_monitor_timenic_list()
     
     def create_traffic_chart(self):
         """Создание графика трафика"""
@@ -623,12 +676,42 @@ class MonitoringWidget(QWidget):
         self.temp_data = {'temp': [], 'time': []}
         return canvas
     
+    def create_timenic_traffic_chart(self):
+        """Создание графика трафика для TimeNIC"""
+        fig = Figure(figsize=(6, 4))
+        canvas = FigureCanvas(fig)
+        self.timenic_traffic_ax = fig.add_subplot(111)
+        self.timenic_traffic_ax.set_title("Трафик (байт/с)")
+        self.timenic_traffic_ax.set_xlabel("Время")
+        self.timenic_traffic_ax.set_ylabel("Байт/с")
+        self.timenic_traffic_data = {'rx': [], 'tx': [], 'time': []}
+        return canvas
+    
+    def create_timenic_temperature_chart(self):
+        """Создание графика температуры для TimeNIC"""
+        fig = Figure(figsize=(6, 4))
+        canvas = FigureCanvas(fig)
+        self.timenic_temp_ax = fig.add_subplot(111)
+        self.timenic_temp_ax.set_title("Температура (°C)")
+        self.timenic_temp_ax.set_xlabel("Время")
+        self.timenic_temp_ax.set_ylabel("°C")
+        self.timenic_temp_data = {'temp': [], 'time': []}
+        return canvas
+    
     def update_monitor_nic_list(self):
         """Обновление списка NIC карт для мониторинга"""
         self.monitor_nic_combo.clear()
         nics = self.nic_manager.get_all_nics()
         for nic in nics:
             self.monitor_nic_combo.addItem(nic.name)
+    
+    def update_monitor_timenic_list(self):
+        """Обновление списка TimeNIC карт для мониторинга"""
+        if self.timenic_manager:
+            self.monitor_timenic_combo.clear()
+            timenics = self.timenic_manager.get_all_timenics()
+            for timenic in timenics:
+                self.monitor_timenic_combo.addItem(timenic.name)
     
     def on_monitor_nic_selected(self, nic_name: str):
         """Обработчик выбора NIC для мониторинга"""
@@ -637,6 +720,13 @@ class MonitoringWidget(QWidget):
             self.traffic_data = {'rx': [], 'tx': [], 'time': []}
             self.temp_data = {'temp': [], 'time': []}
             self.update_charts()
+    
+    def on_monitor_timenic_selected(self, timenic_name: str):
+        """Обработчик выбора TimeNIC для мониторинга"""
+        if timenic_name:
+            # Очищаем данные при смене карты
+            self.timenic_monitoring_data = {} # Clear TimeNIC data
+            self.update_timenic_charts()
     
     def update_monitoring_data(self, data: dict):
         """Обновление данных мониторинга"""
@@ -647,6 +737,7 @@ class MonitoringWidget(QWidget):
     def update_timenic_monitoring_data(self, data: dict):
         """Обновление данных мониторинга TimeNIC"""
         self.timenic_monitoring_data = data
+        self.update_timenic_charts()
         self.update_timenic_stats()
     
     def update_charts(self):
@@ -710,6 +801,70 @@ class MonitoringWidget(QWidget):
         
         self.traffic_canvas.draw()
         self.temp_canvas.draw()
+    
+    def update_timenic_charts(self):
+        """Обновление графиков TimeNIC"""
+        if not self.timenic_manager:
+            return
+
+        current_timenic = self.monitor_timenic_combo.currentText()
+        if not current_timenic or current_timenic not in self.timenic_monitoring_data:
+            return
+
+        data = self.timenic_monitoring_data[current_timenic]
+        current_time = len(self.timenic_traffic_data['time'])
+
+        # Обновляем данные трафика
+        if 'stats' in data:
+            stats = data['stats']
+            if 'rx_bytes' in stats and 'tx_bytes' in stats:
+                if self.timenic_traffic_data['time']:
+                    prev_rx = self.timenic_traffic_data['rx'][-1] if self.timenic_traffic_data['rx'] else 0
+                    prev_tx = self.timenic_traffic_data['tx'][-1] if self.timenic_traffic_data['tx'] else 0
+                    rx_speed = stats['rx_bytes'] - prev_rx
+                    tx_speed = stats['tx_bytes'] - prev_tx
+                else:
+                    rx_speed = tx_speed = 0
+                
+                self.timenic_traffic_data['rx'].append(rx_speed)
+                self.timenic_traffic_data['tx'].append(tx_speed)
+                self.timenic_traffic_data['time'].append(current_time)
+        
+        # Обновляем данные температуры
+        if 'temperature' in data and data['temperature']:
+            self.timenic_temp_data['temp'].append(data['temperature'])
+            self.timenic_temp_data['time'].append(current_time)
+        
+        # Ограничиваем количество точек на графике
+        max_points = 60
+        if len(self.timenic_traffic_data['time']) > max_points:
+            self.timenic_traffic_data['rx'] = self.timenic_traffic_data['rx'][-max_points:]
+            self.timenic_traffic_data['tx'] = self.timenic_traffic_data['tx'][-max_points:]
+            self.timenic_traffic_data['time'] = self.timenic_traffic_data['time'][-max_points:]
+        
+        if len(self.timenic_temp_data['time']) > max_points:
+            self.timenic_temp_data['temp'] = self.timenic_temp_data['temp'][-max_points:]
+            self.timenic_temp_data['time'] = self.timenic_temp_data['time'][-max_points:]
+        
+        # Обновляем графики
+        self.timenic_traffic_ax.clear()
+        if self.timenic_traffic_data['time']:
+            self.timenic_traffic_ax.plot(self.timenic_traffic_data['time'], self.timenic_traffic_data['rx'], label='RX', color='blue')
+            self.timenic_traffic_ax.plot(self.timenic_traffic_data['time'], self.timenic_traffic_data['tx'], label='TX', color='red')
+            self.timenic_traffic_ax.legend()
+            self.timenic_traffic_ax.set_title("Трафик (байт/с)")
+            self.timenic_traffic_ax.set_xlabel("Время")
+            self.timenic_traffic_ax.set_ylabel("Байт/с")
+        
+        self.timenic_temp_ax.clear()
+        if self.timenic_temp_data['time']:
+            self.timenic_temp_ax.plot(self.timenic_temp_data['time'], self.timenic_temp_data['temp'], color='orange')
+            self.timenic_temp_ax.set_title("Температура (°C)")
+            self.timenic_temp_ax.set_xlabel("Время")
+            self.timenic_temp_ax.set_ylabel("°C")
+        
+        self.timenic_traffic_canvas.draw()
+        self.timenic_temp_canvas.draw()
     
     def update_stats(self):
         """Обновление статистики"""
