@@ -1,8 +1,8 @@
-# Intel NIC PPS Configuration and Monitoring Tool - Документация
+# Intel NIC PPS Configuration and Monitoring Tool - Подробная документация
 
 ## Обзор
 
-Intel NIC PPS Configuration and Monitoring Tool - это комплексное решение для конфигурации и мониторинга сетевых карт Intel с поддержкой PPS (Pulse Per Second) и TCXO (Temperature Compensated Crystal Oscillator).
+Intel NIC PPS Configuration and Monitoring Tool - это комплексное решение для конфигурации и мониторинга сетевых карт Intel с поддержкой PPS (Pulse Per Second), TimeNIC и TCXO (Temperature Compensated Crystal Oscillator).
 
 ## Возможности
 
@@ -26,7 +26,25 @@ Intel NIC PPS Configuration and Monitoring Tool - это комплексное 
 - Права root для изменения настроек NIC карт
 
 ### Установка зависимостей
+
+#### Ubuntu/Debian
 ```bash
+# Системные пакеты
+sudo apt update
+sudo apt install -y dkms build-essential linux-headers-$(uname -r) \
+    ethtool linuxptp libgpiod-dev pkg-config git
+
+# Python зависимости
+pip install -r requirements.txt
+```
+
+#### RHEL/CentOS/Fedora
+```bash
+# Системные пакеты
+sudo yum install -y dkms gcc make kernel-devel-$(uname -r) \
+    ethtool linuxptp libgpiod-devel pkg-config git
+
+# Python зависимости
 pip install -r requirements.txt
 ```
 
@@ -192,7 +210,7 @@ intel-nic-pps-tool/
 │   └── main.py          # Click интерфейс
 ├── web/                  # WEB приложение
 │   ├── __init__.py
-│   ├── app.py           # Flask приложение
+│   ├── app.py           # flask приложение
 │   ├── templates/       # HTML шаблоны
 │   └── static/          # Статические файлы
 ├── drivers/              # Драйверы

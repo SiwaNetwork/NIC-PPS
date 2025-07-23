@@ -3,8 +3,8 @@ PyQt6>=6.4.0
 PyQt6-Qt6>=6.4.0
 
 # Web dependencies
-Flask>=2.3.0
-Flask-SocketIO>=5.3.0
+flask>=2.3.0
+flask-socketio>=5.3.0
 Werkzeug>=2.3.0
 
 # CLI dependencies

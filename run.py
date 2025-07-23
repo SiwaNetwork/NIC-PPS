@@ -13,7 +13,7 @@ from pathlib import Path
 def check_dependencies():
     """Проверка зависимостей"""
     required_modules = [
-        'PyQt6', 'Flask', 'click', 'rich', 'psutil', 'netifaces'
+        'PyQt6', 'flask', 'click', 'rich', 'psutil', 'netifaces'
     ]
     
     # TimeNIC specific dependencies
