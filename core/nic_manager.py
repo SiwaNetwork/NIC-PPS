@@ -4,19 +4,22 @@ Intel NIC Manager - основной класс для работы с сете�
 
 import os
 import subprocess
-import psutil
 import netifaces
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-
-class PPSMode(Enum):
-    """Режимы работы PPS"""
-    DISABLED = "disabled"
-    INPUT = "input"
-    OUTPUT = "output"
-    BOTH = "both"
+# Импортируем PPSMode из timenic_manager чтобы избежать дублирования
+try:
+    from .timenic_manager import PPSMode
+except ImportError:
+    # Если не удается импортировать, определяем локально
+    class PPSMode(Enum):
+        """Режимы работы PPS"""
+        DISABLED = "disabled"
+        INPUT = "input"
+        OUTPUT = "output"
+        BOTH = "both"
 
 
 @dataclass

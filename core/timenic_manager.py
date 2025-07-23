@@ -9,7 +9,7 @@ import time
 import json
 import logging
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -603,6 +603,26 @@ class TimeNICManager:
                             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при включении PTM: {e}")
+            return False
+        return False
+    
+    def disable_ptm(self, interface: str) -> bool:
+        """Отключение PTM для TimeNIC"""
+        try:
+            # Находим PCI адрес карты
+            result = subprocess.run(["lspci", "-nn"], capture_output=True, text=True)
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'Ethernet controller' in line and 'Intel' in line:
+                        # Извлекаем PCI адрес
+                        pci_addr = line.split()[0]
+                        ptm_path = f"/sys/bus/pci/devices/0000:{pci_addr}/enable_ptm"
+                        if os.path.exists(ptm_path):
+                            with open(ptm_path, 'w') as f:
+                                f.write('0')
+                            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            self.logger.error(f"Ошибка при отключении PTM: {e}")
             return False
         return False
     
