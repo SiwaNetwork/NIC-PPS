@@ -230,14 +230,32 @@ def check_system():
     timenic_utils = ['testptp', 'ts2phc', 'phc_ctl', 'ethtool']
     for util in timenic_utils:
         try:
-            result = subprocess.run([util, "--version"], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"✓ {util} доступен")
-            else:
-                print(f"⚠ {util} не найден")
-        except FileNotFoundError:
-            print(f"⚠ {util} не установлен")
+            # Проверяем в стандартных путях
+            paths_to_check = [f"/usr/bin/{util}", f"/usr/sbin/{util}", f"/bin/{util}", f"/sbin/{util}"]
+            found = False
+            
+            for path in paths_to_check:
+                if os.path.exists(path):
+                    print(f"✓ {util} доступен ({path})")
+                    found = True
+                    break
+            
+            if not found:
+                # Пробуем через which
+                result = subprocess.run(["which", util], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"✓ {util} доступен ({result.stdout.strip()})")
+                    found = True
+            
+            if not found:
+                if util == 'testptp':
+                    print(f"⚠ {util} не установлен (часто входит в состав kernel samples)")
+                else:
+                    print(f"⚠ {util} не найден")
+                    
+        except Exception as e:
+            print(f"⚠ Ошибка при проверке {util}: {e}")
     
     print("Проверка завершена")
     return True

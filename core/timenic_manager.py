@@ -111,7 +111,7 @@ class TimeNICManager:
         """Получение списка сетевых интерфейсов"""
         try:
             result = subprocess.run(["ip", "link", "show"], 
-                                  capture_output=True, text=True, check=True)
+                                  capture_output=True, text=True, check=True, timeout=10)
             interfaces = []
             for line in result.stdout.split('\n'):
                 if ':' in line and not line.startswith(' '):
@@ -119,8 +119,13 @@ class TimeNICManager:
                     if interface and not interface.startswith('lo'):
                         interfaces.append(interface)
             return interfaces
-        except subprocess.CalledProcessError:
-            return []
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            # Fallback to netifaces
+            try:
+                import netifaces
+                return [iface for iface in netifaces.interfaces() if not iface.startswith('lo')]
+            except Exception:
+                return []
     
     def _is_timenic(self, interface: str) -> bool:
         """Проверка, является ли интерфейс TimeNIC картой"""
@@ -129,14 +134,14 @@ class TimeNICManager:
             driver_path = f"/sys/class/net/{interface}/device/driver"
             if os.path.exists(driver_path):
                 driver = os.path.basename(os.readlink(driver_path))
-                return "igc" in driver
+                return "igc" in driver.lower()
             
             # Проверяем через ethtool
             result = subprocess.run(["ethtool", "-i", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 return "igc" in result.stdout.lower()
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return False
     
@@ -204,7 +209,7 @@ class TimeNICManager:
         try:
             # Используем testptp для получения информации
             result = subprocess.run(["testptp", "-d", ptp_device, "-q"], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=10)
             if result.returncode != 0:
                 return None
             
@@ -228,7 +233,7 @@ class TimeNICManager:
                 pps=info.get('pps', '0') == '1',
                 cross_timestamping=info.get('cross_timestamping', '0') == '1'
             )
-        except Exception as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при получении информации о PTP {ptp_device}: {e}")
             return None
     
@@ -236,12 +241,12 @@ class TimeNICManager:
         """Получение MAC адреса интерфейса"""
         try:
             result = subprocess.run(["ip", "link", "show", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if 'link/ether' in line:
                         return line.split()[1]
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             pass
         return ""
     
@@ -249,34 +254,37 @@ class TimeNICManager:
         """Получение IP адреса интерфейса"""
         try:
             result = subprocess.run(["ip", "addr", "show", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if 'inet ' in line:
                         return line.split()[1].split('/')[0]
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             pass
         return ""
     
     def _get_interface_status(self, interface: str) -> str:
         """Получение статуса интерфейса"""
         try:
-            if os.path.exists(f"/sys/class/net/{interface}/carrier"):
-                return "up"
-            return "down"
-        except:
-            return "unknown"
+            operstate_path = f"/sys/class/net/{interface}/operstate"
+            if os.path.exists(operstate_path):
+                with open(operstate_path, 'r') as f:
+                    state = f.read().strip()
+                    return "up" if state == "up" else "down"
+        except Exception:
+            pass
+        return "unknown"
     
     def _get_interface_speed(self, interface: str) -> str:
         """Получение скорости интерфейса"""
         try:
             result = subprocess.run(["ethtool", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if 'Speed:' in line:
                         return line.split(':')[1].strip()
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             pass
         return "unknown"
     
@@ -284,12 +292,12 @@ class TimeNICManager:
         """Получение режима дуплекса"""
         try:
             result = subprocess.run(["ethtool", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if 'Duplex:' in line:
                         return line.split(':')[1].strip()
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             pass
         return "unknown"
     
@@ -300,7 +308,7 @@ class TimeNICManager:
             ptp_device = self._find_ptp_device_for_interface(interface)
             if ptp_device:
                 result = subprocess.run(["testptp", "-d", ptp_device, "-q"], 
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     # Анализируем вывод для определения режима
                     if "n_per_out: 1" in result.stdout and "n_ext_ts: 1" in result.stdout:
@@ -309,7 +317,7 @@ class TimeNICManager:
                         return PPSMode.OUTPUT
                     elif "n_ext_ts: 1" in result.stdout:
                         return PPSMode.INPUT
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return PPSMode.DISABLED
     
@@ -321,7 +329,7 @@ class TimeNICManager:
             if os.path.exists(tcxo_path):
                 with open(tcxo_path, 'r') as f:
                     return f.read().strip() == '1'
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return False
     
@@ -335,7 +343,7 @@ class TimeNICManager:
                 # Ищем строки с PTM
                 if "Precision Time Measurement" in result.stdout:
                     return PTMStatus.ENABLED
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return PTMStatus.UNSUPPORTED
     
@@ -344,7 +352,7 @@ class TimeNICManager:
         try:
             # Проверяем через ethtool -T
             result = subprocess.run(["ethtool", "-T", interface], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if 'PTP Hardware Clock:' in line:
@@ -352,7 +360,7 @@ class TimeNICManager:
                         ptp_device = f"/dev/ptp{clock_id}"
                         if os.path.exists(ptp_device):
                             return ptp_device
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return None
     
@@ -364,7 +372,7 @@ class TimeNICManager:
         try:
             # Используем phc_ctl для получения информации
             result = subprocess.run(["phc_ctl", ptp_device, "get"], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 # Парсим вывод для получения offset и frequency
                 lines = result.stdout.split('\n')
@@ -373,12 +381,18 @@ class TimeNICManager:
                 
                 for line in lines:
                     if 'offset' in line:
-                        offset = int(line.split()[1])
+                        try:
+                            offset = int(line.split()[1])
+                        except (IndexError, ValueError):
+                            pass
                     elif 'frequency' in line:
-                        frequency = int(line.split()[1])
+                        try:
+                            frequency = int(line.split()[1])
+                        except (IndexError, ValueError):
+                            pass
                 
                 return offset, frequency
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return None, None
     
@@ -396,7 +410,7 @@ class TimeNICManager:
                     with open(temp_path, 'r') as f:
                         temp_raw = int(f.read().strip())
                         return temp_raw / 1000.0  # Конвертируем в градусы Цельсия
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return None
     
@@ -410,7 +424,7 @@ class TimeNICManager:
                                       capture_output=True, text=True)
                 if result.returncode == 0 and "n_per_out: 1" in result.stdout:
                     return "enabled"
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return "disabled"
     
@@ -424,7 +438,7 @@ class TimeNICManager:
                                       capture_output=True, text=True)
                 if result.returncode == 0 and "n_ext_ts: 1" in result.stdout:
                     return "enabled"
-        except:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return "disabled"
     
@@ -479,7 +493,7 @@ class TimeNICManager:
             # Отключаем внешние временные метки (SDP1)
             subprocess.run(["testptp", "-d", ptp_device, "-L1,0"], check=True)
             return True
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при отключении PPS: {e}")
             return False
     
@@ -493,7 +507,7 @@ class TimeNICManager:
             subprocess.run(["testptp", "-d", ptp_device, "-p", "1000000000"], check=True)
             self.logger.info(f"PPS выход включен на {ptp_device} (SMA1/SDP0)")
             return True
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при включении PPS выхода: {e}")
             return False
     
@@ -505,7 +519,7 @@ class TimeNICManager:
             subprocess.run(["testptp", "-d", ptp_device, "-L1,1"], check=True)
             self.logger.info(f"PPS вход включен на {ptp_device} (SMA2/SDP1)")
             return True
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при включении PPS входа: {e}")
             return False
     
@@ -531,7 +545,7 @@ class TimeNICManager:
                 with open(tcxo_path, 'w') as f:
                     f.write('1' if enabled else '0')
                 return True
-        except Exception as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при управлении TCXO: {e}")
             return False
         return False
@@ -576,7 +590,7 @@ class TimeNICManager:
                             with open(ptm_path, 'w') as f:
                                 f.write('1')
                             return True
-        except Exception as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при включении PTM: {e}")
             return False
         return False
@@ -617,8 +631,8 @@ class TimeNICManager:
             
             return events
             
-        except subprocess.TimeoutExpired:
-            self.logger.warning(f"Таймаут при чтении {count} PPS событий")
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            self.logger.warning(f"Таймаут при чтении {count} PPS событий: {e}")
             return []
         except Exception as e:
             self.logger.error(f"Ошибка при чтении PPS событий: {e}")
@@ -642,7 +656,7 @@ class TimeNICManager:
             )
             self.logger.info(f"Период PPS установлен: {period_ns} нс на {ptp_device}")
             return True
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при установке периода PPS: {e}")
             return False
     
@@ -659,7 +673,7 @@ class TimeNICManager:
             )
             self.logger.info(f"PHC синхронизирован с системным временем на {interface}")
             return True
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при синхронизации PHC: {e}")
             return False
     
@@ -716,7 +730,7 @@ class TimeNICManager:
                                       capture_output=True, text=True)
                 if result.returncode == 0:
                     stats['tx_errors'] = int(result.stdout.strip())
-            except:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
                 pass
             
             return stats
@@ -813,7 +827,7 @@ class TimeNICManager:
             
             return True
             
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при установке драйвера TimeNIC: {e}")
             return False
     

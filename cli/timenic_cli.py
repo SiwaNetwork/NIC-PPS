@@ -7,6 +7,7 @@ import click
 import subprocess
 import json
 import sys
+import os
 from typing import Optional
 from rich.console import Console
 from rich.table import Table
@@ -15,6 +16,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
 from rich.layout import Layout
 from rich.text import Text
+
+# Добавляем путь к модулям
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.timenic_manager import TimeNICManager, PPSMode, PTMStatus
 
