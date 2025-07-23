@@ -71,6 +71,8 @@ def get_nics():
 def get_timenics():
     """API для получения списка TimeNIC карт"""
     try:
+        # Обновляем список устройств перед возвратом
+        timenic_manager.refresh()
         timenics = timenic_manager.get_all_timenics()
         data = []
         
@@ -401,6 +403,8 @@ def start_monitoring():
                     
                     # Мониторинг TimeNIC карт
                     timenic_data = {}
+                    # Обновляем список устройств
+                    timenic_manager.refresh()
                     timenics = timenic_manager.get_all_timenics()
                     for timenic in timenics:
                         stats = timenic_manager.get_statistics(timenic.name)

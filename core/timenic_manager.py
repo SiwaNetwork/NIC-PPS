@@ -77,6 +77,9 @@ class TimeNICManager:
     def _discover_timenics(self):
         """Обнаружение TimeNIC карт"""
         try:
+            # Очищаем список перед новым обнаружением
+            self.timenic_list = []
+            
             # Получаем список всех сетевых интерфейсов
             interfaces = self._get_network_interfaces()
             
@@ -91,6 +94,9 @@ class TimeNICManager:
     def _discover_ptp_devices(self):
         """Обнаружение PTP устройств"""
         try:
+            # Очищаем список перед новым обнаружением
+            self.ptp_devices = []
+            
             # Ищем PTP устройства в /dev/ptp*
             ptp_devices = list(Path("/dev").glob("ptp*"))
             
@@ -437,6 +443,11 @@ class TimeNICManager:
         """Получение списка всех PTP устройств"""
         return self.ptp_devices
     
+    def refresh(self):
+        """Обновление списка TimeNIC карт и PTP устройств"""
+        self._discover_timenics()
+        self._discover_ptp_devices()
+    
     def set_pps_mode(self, interface: str, mode: PPSMode) -> bool:
         """Установка режима PPS для TimeNIC"""
         try:
@@ -685,6 +696,26 @@ class TimeNICManager:
                                       capture_output=True, text=True)
                 if result.returncode == 0:
                     stats['tx_bytes'] = int(result.stdout.strip())
+                    
+                result = subprocess.run(["cat", f"/sys/class/net/{interface}/statistics/rx_packets"], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    stats['rx_packets'] = int(result.stdout.strip())
+                
+                result = subprocess.run(["cat", f"/sys/class/net/{interface}/statistics/tx_packets"], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    stats['tx_packets'] = int(result.stdout.strip())
+                    
+                result = subprocess.run(["cat", f"/sys/class/net/{interface}/statistics/rx_errors"], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    stats['rx_errors'] = int(result.stdout.strip())
+                
+                result = subprocess.run(["cat", f"/sys/class/net/{interface}/statistics/tx_errors"], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    stats['tx_errors'] = int(result.stdout.strip())
             except:
                 pass
             
@@ -693,6 +724,62 @@ class TimeNICManager:
         except Exception as e:
             self.logger.error(f"Ошибка при получении статистики: {e}")
             return {}
+    
+    def monitor_traffic(self, interface: str, callback=None, interval: int = 1):
+        """Мониторинг трафика в реальном времени
+        
+        Args:
+            interface: имя интерфейса
+            callback: функция обратного вызова для обработки данных
+            interval: интервал обновления в секундах
+        """
+        try:
+            prev_stats = self.get_statistics(interface)
+            prev_time = time.time()
+            
+            while True:
+                time.sleep(interval)
+                current_stats = self.get_statistics(interface)
+                current_time = time.time()
+                time_diff = current_time - prev_time
+                
+                # Вычисляем скорость
+                if 'rx_bytes' in current_stats and 'rx_bytes' in prev_stats:
+                    rx_speed = (current_stats['rx_bytes'] - prev_stats['rx_bytes']) / time_diff
+                    current_stats['rx_speed'] = rx_speed
+                    
+                if 'tx_bytes' in current_stats and 'tx_bytes' in prev_stats:
+                    tx_speed = (current_stats['tx_bytes'] - prev_stats['tx_bytes']) / time_diff
+                    current_stats['tx_speed'] = tx_speed
+                    
+                if 'rx_packets' in current_stats and 'rx_packets' in prev_stats:
+                    rx_pps = (current_stats['rx_packets'] - prev_stats['rx_packets']) / time_diff
+                    current_stats['rx_pps'] = rx_pps
+                    
+                if 'tx_packets' in current_stats and 'tx_packets' in prev_stats:
+                    tx_pps = (current_stats['tx_packets'] - prev_stats['tx_packets']) / time_diff
+                    current_stats['tx_pps'] = tx_pps
+                
+                # Обновляем информацию о TimeNIC
+                self.refresh()
+                timenic = self.get_timenic_by_name(interface)
+                if timenic:
+                    current_stats.update({
+                        'phc_offset': timenic.phc_offset,
+                        'phc_frequency': timenic.phc_frequency,
+                        'temperature': timenic.temperature
+                    })
+                
+                if callback:
+                    callback(current_stats)
+                
+                prev_stats = current_stats
+                prev_time = current_time
+                
+        except KeyboardInterrupt:
+            self.logger.info("Мониторинг остановлен пользователем")
+        except Exception as e:
+            self.logger.error(f"Ошибка при мониторинге трафика: {e}")
     
     def install_timenic_driver(self) -> bool:
         """Установка драйвера TimeNIC с патчем для PPS"""
