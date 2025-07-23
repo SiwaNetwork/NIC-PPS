@@ -1,0 +1,24 @@
+[Unit]
+Description=Setup PTP on TimeNIC PCIe card
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Enable PPS output on SDP0 (SMA1)
+ExecStart=/usr/bin/testptp -d /dev/ptp0 -L0,2
+ExecStart=/usr/bin/testptp -d /dev/ptp0 -p 1000000000
+
+# Enable PPS input on SDP1 (SMA2)
+ExecStart=/usr/bin/testptp -d /dev/ptp0 -L1,1
+
+# Optional: Start synchronization to external PPS
+# Uncomment the following line to enable automatic sync
+# ExecStart=/usr/sbin/ts2phc -c /dev/ptp0 -s generic --ts2phc.pin_index 1 -m -l 7
+
+# Optional: Set initial PHC time from system
+ExecStartPre=/usr/sbin/phc_ctl /dev/ptp0 "set;" adj 37
+
+[Install]
+WantedBy=multi-user.target
