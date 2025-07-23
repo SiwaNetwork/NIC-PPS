@@ -136,6 +136,7 @@ def set_pps(interface, mode):
             console.print(f"[green]✓ PPS режим {mode} успешно установлен для {interface}[/green]")
         else:
             console.print(f"[red]✗ Ошибка при установке PPS режима {mode} для {interface}[/red]")
+            console.print("[yellow]Подсказка: Запустите 'python debug_ptp.py' для диагностики проблемы[/yellow]")
             
     except Exception as e:
         console.print(f"[red]Ошибка: {e}[/red]")

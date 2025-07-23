@@ -466,8 +466,19 @@ class TimeNICManager:
         """Установка режима PPS для TimeNIC"""
         try:
             timenic = self.get_timenic_by_name(interface)
-            if not timenic or not timenic.ptp_device:
+            if not timenic:
+                self.logger.error(f"TimeNIC карта не найдена для интерфейса {interface}")
+                self.logger.info("Доступные TimeNIC карты:")
+                for t in self.timenics:
+                    self.logger.info(f"  - {t.name}")
+                return False
+            
+            if not timenic.ptp_device:
                 self.logger.error(f"PTP устройство не найдено для {interface}")
+                self.logger.info("Проверьте:")
+                self.logger.info("  1. Драйвер igc загружен: lsmod | grep igc")
+                self.logger.info("  2. PTP поддержка включена: ethtool -T " + interface)
+                self.logger.info("  3. PTP устройства существуют: ls /dev/ptp*")
                 return False
             
             ptp_device = timenic.ptp_device

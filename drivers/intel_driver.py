@@ -141,19 +141,10 @@ class IGBDriver(IntelDriver):
     
     def set_pps_mode(self, mode: str) -> bool:
         """Установка режима PPS для IGB"""
-        try:
-            if mode == "disabled":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-disable"], check=True)
-            elif mode == "input":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-input"], check=True)
-            elif mode == "output":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-output"], check=True)
-            elif mode == "both":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-input", "--pps-output"], check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки PPS для IGB: {e}")
-            return False
+        # ethtool не поддерживает управление PPS напрямую
+        # Нужно использовать testptp с PTP устройством
+        print(f"Установка PPS режима через ethtool не поддерживается")
+        return False
     
     def get_tcxo_status(self) -> bool:
         """Получение статуса TCXO для IGB"""
@@ -283,19 +274,10 @@ class IXGBEDriver(IntelDriver):
     
     def set_pps_mode(self, mode: str) -> bool:
         """Установка режима PPS для IXGBE"""
-        try:
-            if mode == "disabled":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-disable"], check=True)
-            elif mode == "input":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-input"], check=True)
-            elif mode == "output":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-output"], check=True)
-            elif mode == "both":
-                subprocess.run(["ethtool", "-T", self.interface, "--pps-input", "--pps-output"], check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"Ошибка установки PPS для IXGBE: {e}")
-            return False
+        # ethtool не поддерживает управление PPS напрямую
+        # Нужно использовать testptp с PTP устройством
+        print(f"Установка PPS режима через ethtool не поддерживается")
+        return False
     
     def get_tcxo_status(self) -> bool:
         """Получение статуса TCXO для IXGBE"""
