@@ -472,26 +472,30 @@ class TimeNICManager:
             self.logger.error(f"Ошибка при отключении PPS: {e}")
             return False
     
-    def _enable_pps_input(self, ptp_device: str) -> bool:
-        """Включение PPS входа (SMA2/SDP1)"""
-        try:
-            # Настраиваем SDP1 как входной пин для внешних временных меток
-            subprocess.run(["testptp", "-d", ptp_device, "-L1,1"], check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Ошибка при включении PPS входа: {e}")
-            return False
-    
     def _enable_pps_output(self, ptp_device: str) -> bool:
         """Включение PPS выхода (SMA1/SDP0)"""
         try:
             # Настраиваем SDP0 как выходной пин для периодического сигнала
+            # Согласно гайду: -L0,2 где 0 - индекс SDP0, 2 - функция "periodic output"
             subprocess.run(["testptp", "-d", ptp_device, "-L0,2"], check=True)
-            # Устанавливаем период 1 Гц (1 секунда)
+            # Устанавливаем период 1 Гц (1 секунда = 1000000000 наносекунд)
             subprocess.run(["testptp", "-d", ptp_device, "-p", "1000000000"], check=True)
+            self.logger.info(f"PPS выход включен на {ptp_device} (SMA1/SDP0)")
             return True
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Ошибка при включении PPS выхода: {e}")
+            return False
+    
+    def _enable_pps_input(self, ptp_device: str) -> bool:
+        """Включение PPS входа (SMA2/SDP1)"""
+        try:
+            # Настраиваем SDP1 как входной пин для внешних временных меток
+            # Согласно гайду: -L1,1 где 1 - индекс SDP1, 1 - функция EXTTS
+            subprocess.run(["testptp", "-d", ptp_device, "-L1,1"], check=True)
+            self.logger.info(f"PPS вход включен на {ptp_device} (SMA2/SDP1)")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Ошибка при включении PPS входа: {e}")
             return False
     
     def _enable_pps_both(self, ptp_device: str) -> bool:
@@ -565,6 +569,88 @@ class TimeNICManager:
             self.logger.error(f"Ошибка при включении PTM: {e}")
             return False
         return False
+    
+    def read_pps_events(self, ptp_device: str, count: int = 5) -> List[Dict[str, Any]]:
+        """Чтение PPS событий с внешнего источника
+        
+        Args:
+            ptp_device: PTP устройство (например, /dev/ptp0)
+            count: Количество событий для чтения
+            
+        Returns:
+            Список событий с временными метками
+        """
+        try:
+            # Читаем события используя testptp -e
+            result = subprocess.run(
+                ["testptp", "-d", ptp_device, "-e", str(count)],
+                capture_output=True, text=True, timeout=count + 2
+            )
+            
+            if result.returncode != 0:
+                self.logger.error(f"Ошибка чтения PPS событий: {result.stderr}")
+                return []
+            
+            events = []
+            for line in result.stdout.split('\n'):
+                if 'event' in line and 'index' in line:
+                    # Парсим строку события
+                    # Пример: event index 1 at 1234567890.123456789
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        event = {
+                            'index': int(parts[2]),
+                            'timestamp': parts[4]
+                        }
+                        events.append(event)
+            
+            return events
+            
+        except subprocess.TimeoutExpired:
+            self.logger.warning(f"Таймаут при чтении {count} PPS событий")
+            return []
+        except Exception as e:
+            self.logger.error(f"Ошибка при чтении PPS событий: {e}")
+            return []
+    
+    def set_pps_period(self, ptp_device: str, period_ns: int) -> bool:
+        """Установка периода PPS сигнала
+        
+        Args:
+            ptp_device: PTP устройство (например, /dev/ptp0)
+            period_ns: Период в наносекундах (1000000000 = 1 Гц)
+            
+        Returns:
+            True если успешно
+        """
+        try:
+            # Устанавливаем период используя testptp -p
+            subprocess.run(
+                ["testptp", "-d", ptp_device, "-p", str(period_ns)],
+                check=True
+            )
+            self.logger.info(f"Период PPS установлен: {period_ns} нс на {ptp_device}")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Ошибка при установке периода PPS: {e}")
+            return False
+    
+    def sync_phc_to_system_time(self, interface: str) -> bool:
+        """Синхронизация PHC с системным временем
+        
+        Использует phc_ctl для установки текущего системного времени в PHC
+        """
+        try:
+            # Используем phc_ctl "set;" adj 37 согласно гайду
+            subprocess.run(
+                ["phc_ctl", interface, "set;", "adj", "37"],
+                check=True
+            )
+            self.logger.info(f"PHC синхронизирован с системным временем на {interface}")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Ошибка при синхронизации PHC: {e}")
+            return False
     
     def get_statistics(self, interface: str) -> Dict[str, Any]:
         """Получение статистики TimeNIC карты"""
