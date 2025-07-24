@@ -7,8 +7,8 @@ This document provides comprehensive setup and usage instructions for Intel NIC 
 ### A. Install linuxptp and utilities
 
 ```bash
-sudo apt install linuxptp
-sudo apt install gcc
+sudo apt update
+sudo apt install -y linuxptp gcc build-essential ethtool
 ```
 
 ### B. Download testptp
@@ -36,7 +36,17 @@ gcc -Wall -lrt testptp.c -o testptp
 sudo cp testptp /usr/bin/
 ```
 
-### E. Figure out which ptp interface maps to the NIC
+### E. Configure sudo rights for PPS commands
+
+```bash
+# Create sudoers file for PPS commands
+echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+
+# Verify sudo configuration
+sudo -n testptp -d /dev/ptp0 -l
+```
+
+### F. Figure out which ptp interface maps to the NIC
 
 Use `ethtool -T` to determine which PTP Hardware Clock corresponds to your NIC:
 
@@ -65,7 +75,7 @@ Hardware Receive Filter Modes:
 
 On this system, the NIC is `enp1s0`, and the PTP Hardware Clock is number 0, which corresponds to `/dev/ptp0`.
 
-### F. Verify testptp works
+### G. Verify testptp works
 
 ```bash
 sudo testptp -d /dev/ptp0 -l
@@ -124,6 +134,41 @@ sudo phc_ctl enp1s0 "set;" adj 37
 sudo ts2phc -c /dev/ptp0 -s generic --ts2phc.pin_index 1 -m -l 7
 ```
 
+## PHC Synchronization
+
+### Mutual PHC Synchronization (phc2sys)
+
+Synchronize between two PTP Hardware Clocks:
+
+```bash
+# Start mutual synchronization
+sudo phc2sys -s /dev/ptp0 -c /dev/ptp1 -O 0 -R 16 -m
+
+# Check if process is running
+ps aux | grep phc2sys
+
+# Stop synchronization
+sudo pkill phc2sys
+```
+
+### External PPS Synchronization (ts2phc)
+
+Synchronize PHC using external PPS signal:
+
+```bash
+# Set system time to PHC
+sudo phc_ctl -d /dev/ptp0 -s
+
+# Start ts2phc synchronization
+sudo ts2phc -s /dev/ptp0 -c CLOCK_REALTIME -d 1
+
+# Check if process is running
+ps aux | grep ts2phc
+
+# Stop synchronization
+sudo pkill ts2phc
+```
+
 ## Advanced Configuration
 
 ### Fix 1PPS input to only use rising edge (Advanced)
@@ -140,13 +185,30 @@ The Intel NIC PPS Configuration and Monitoring Tool can automatically detect PTP
 
 ```bash
 # Check if PTP interfaces are detected
-python run.py --cli list-ptp
+python run.py --cli list-nics
 
 # Configure PPS through the tool
-python run.py --cli set-pps enp1s0 --mode input --ptp-device /dev/ptp0
+python run.py --cli set-pps enp1s0 --mode input
 
 # Monitor PTP synchronization
-python run.py --cli monitor-ptp enp1s0 --interval 1
+python run.py --cli monitor enp1s0 --interval 1
+```
+
+### PHC Synchronization via Tool
+
+```bash
+# Start PHC2SYS synchronization
+python run.py --cli start-phc-sync /dev/ptp0 /dev/ptp1
+
+# Start TS2PHC synchronization
+python run.py --cli start-ts2phc-sync enp1s0 /dev/ptp0
+
+# Check synchronization status
+python run.py --cli sync-status
+
+# Stop synchronization
+python run.py --cli stop-phc-sync
+python run.py --cli stop-ts2phc-sync
 ```
 
 ### Web Interface Integration
@@ -208,6 +270,27 @@ sudo apt install linuxptp
 which ts2phc
 ```
 
+#### 5. Sudo permission denied for PPS commands
+```bash
+# Check sudo configuration
+sudo -n testptp -d /dev/ptp0 -l
+
+# Reconfigure sudo rights if needed
+echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+```
+
+#### 6. PPS not working through tool
+```bash
+# Check current PPS state manually
+sudo testptp -d /dev/ptp0 -l
+
+# Verify PTP device mapping
+ethtool -T enp1s0
+
+# Check tool logs for detailed error messages
+python run.py --cli set-pps enp1s0 --mode output
+```
+
 ### Debugging Commands
 
 ```bash
@@ -219,6 +302,12 @@ sudo testptp -d /dev/ptp0 -c
 
 # Monitor PTP clock
 sudo testptp -d /dev/ptp0 -m
+
+# Check PHC synchronization processes
+ps aux | grep -E "(phc2sys|ts2phc)"
+
+# Monitor system time vs PHC time
+sudo phc2sys -s /dev/ptp0 -c CLOCK_REALTIME -O 0 -m
 ```
 
 ## Performance Monitoring
@@ -241,21 +330,24 @@ The Intel NIC PPS Tool can integrate with these PTP monitoring capabilities:
 
 ```bash
 # Start comprehensive monitoring
-python run.py --cli monitor-all --ptp --pps --temperature --interval 1
+python run.py --cli monitor enp1s0 --interval 1
+
+# Monitor PTP statistics
+python run.py --cli monitor-ptp enp1s0 --interval 1
 ```
 
 ## Security Considerations
 
 ### Running with Elevated Privileges
 
-Many PTP operations require root privileges. Consider using sudo with specific commands:
+Many PTP operations require root privileges. The tool is configured to use sudo with specific commands:
 
 ```bash
-# Create a specific sudo rule for PTP operations
-sudo visudo
-
-# Add line for specific user
-username ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc
+# Verify sudo configuration
+sudo -n testptp -d /dev/ptp0 -l
+sudo -n phc_ctl -d /dev/ptp0 -i
+sudo -n ts2phc --version
+sudo -n phc2sys --version
 ```
 
 ### Network Security
@@ -279,3 +371,4 @@ sudo ufw allow 320/udp  # PTP general messages
 - **v1.0**: Initial Ubuntu 24.04 setup guide
 - **v1.1**: Added integration with Intel NIC PPS Tool
 - **v1.2**: Added troubleshooting and security sections
+- **v1.3**: Added PHC synchronization features and improved PPS control
