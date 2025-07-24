@@ -408,7 +408,7 @@ class IntelNICManager:
         
         # Метод 3: Через phc_ctl (резервный метод)
         if ptp_device:
-                try:
+            try:
                 print(f"Пробуем отключить через phc_ctl для {interface}")
                 result1 = subprocess.run(["sudo", "-n", "phc_ctl", "-d", ptp_device, "-e", "0"], 
                                       capture_output=True, text=True, timeout=10)
@@ -429,7 +429,7 @@ class IntelNICManager:
         """Включение PPS input для интерфейса"""
         print(f"Включение PPS input для {interface}")
         
-                    success = False
+        success = False
             
         # Метод 1: Через sysfs (если доступен)
         try:
@@ -441,7 +441,7 @@ class IntelNICManager:
             for pattern in sysfs_paths:
                 import glob
                 for path in glob.glob(pattern):
-                try:
+                    try:
                         with open(path, 'w') as f:
                             f.write('1')
                         print(f"✓ PPS input включен через sysfs: {path}")
@@ -486,7 +486,7 @@ class IntelNICManager:
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                 print(f"✗ phc_ctl исключение: {e}")
                 
-            return success
+        return success
             
     def _enable_pps_output(self, interface: str) -> bool:
         """Включение PPS output для интерфейса"""
@@ -567,12 +567,15 @@ class IntelNICManager:
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if "PTP Hardware Clock:" in line:
-                        clock_num = line.split(':')[1].strip()
-                        ptp_device = f"/dev/ptp{clock_num}"
-                        if os.path.exists(ptp_device):
-                            return ptp_device
-                except Exception:
-                    pass
+                        try:
+                            clock_num = line.split(':')[1].strip()
+                            ptp_device = f"/dev/ptp{clock_num}"
+                            if os.path.exists(ptp_device):
+                                return ptp_device
+                        except Exception:
+                            pass
+        except Exception:
+            pass
             
         # Резервный метод: ищем все PTP устройства
         ptp_devices = self._find_ptp_devices(interface)
