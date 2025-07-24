@@ -340,7 +340,10 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
         
         if success:
             QMessageBox.information(self, "Успех", f"PPS режим изменен на {mode.value}")
+            # Обновляем список и текущее отображение
             self.update_nic_list()
+            # Обновляем отображение выбранной карты
+            self.on_nic_selected(nic_name)
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось изменить PPS режим")
     
@@ -356,7 +359,10 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
         
         if success:
             QMessageBox.information(self, "Успех", f"TCXO {'включен' if enabled else 'отключен'}")
+            # Обновляем список и текущее отображение
             self.update_nic_list()
+            # Обновляем отображение выбранной карты
+            self.on_nic_selected(nic_name)
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось изменить настройки TCXO")
 
@@ -488,6 +494,9 @@ class TimeNICConfigurationWidget(QWidget):
             success = self.timenic_manager.set_pps_mode(timenic_name, pps_mode)
             if success:
                 QMessageBox.information(self, "Успех", f"PPS режим {pps_mode.value} установлен для {timenic_name}")
+                # Обновляем список и текущее отображение
+                self.update_timenic_list()
+                self.on_timenic_selected(timenic_name)
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось установить PPS режим для {timenic_name}")
         except Exception as e:
@@ -513,6 +522,9 @@ class TimeNICConfigurationWidget(QWidget):
             
             if tcxo_success and ptm_success:
                 QMessageBox.information(self, "Успех", f"Настройки применены для {timenic_name}")
+                # Обновляем список и текущее отображение
+                self.update_timenic_list()
+                self.on_timenic_selected(timenic_name)
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось применить все настройки для {timenic_name}")
         except Exception as e:

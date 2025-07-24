@@ -321,19 +321,26 @@ class IntelNICManager:
             ptp_device = self._get_ptp_device_for_interface(interface)
             if ptp_device:
                 try:
-                    # Отключаем PPS через testptp с sudo
-                    # Отключаем периодический выход
+                    # Шаг 1: Отключаем периодический выход
+                    print(f"Отключение периодического выхода для {interface}")
                     result1 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-p", "0"], 
                                           capture_output=True, text=True, timeout=10)
-                    # Отключаем внешние временные метки
-                    result2 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-e", "0"], 
+                    
+                    # Шаг 2: Сбрасываем настройки SDP0 (отключаем выходной пин)
+                    print(f"Сброс настроек SDP0 для {interface}")
+                    result2 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L0,0"], 
                                           capture_output=True, text=True, timeout=10)
                     
-                    if result1.returncode == 0 and result2.returncode == 0:
+                    # Шаг 3: Отключаем внешние временные метки
+                    print(f"Отключение внешних временных меток для {interface}")
+                    result3 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-e", "0"], 
+                                          capture_output=True, text=True, timeout=10)
+                    
+                    if result1.returncode == 0 and result2.returncode == 0 and result3.returncode == 0:
                         print(f"✓ PPS отключен через testptp для {interface} ({ptp_device})")
                         success = True
                     else:
-                        print(f"✗ testptp ошибка отключения: {result1.stderr} {result2.stderr}")
+                        print(f"✗ testptp ошибка отключения: {result1.stderr} {result2.stderr} {result3.stderr}")
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                     print(f"✗ testptp исключение при отключении: {e}")
             
@@ -374,9 +381,9 @@ class IntelNICManager:
             ptp_device = self._get_ptp_device_for_interface(interface)
             if ptp_device:
                 try:
-                    # Включаем PPS вход через testptp с sudo
-                    # Используем параметр -L для настройки пина как внешней временной метки
-                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L", "0,1"], 
+                    # Шаг 1: Назначаем SDP1 как входной пин (внешние временные метки)
+                    print(f"Настройка SDP1 как входной пин для {interface}")
+                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L1,1"], 
                                          capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:
                         print(f"✓ PPS input включен через testptp для {interface} ({ptp_device})")
@@ -418,8 +425,16 @@ class IntelNICManager:
             ptp_device = self._get_ptp_device_for_interface(interface)
             if ptp_device:
                 try:
-                    # Включаем PPS выход через testptp с sudo
-                    # Используем параметр -p для периодического выхода (PPS)
+                    # Шаг 1: Назначаем SDP0 как выходной пин (периодический выход)
+                    print(f"Настройка SDP0 как выходной пин для {interface}")
+                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L0,2"], 
+                                         capture_output=True, text=True, timeout=10)
+                    if result.returncode != 0:
+                        print(f"✗ Ошибка настройки SDP0: {result.stderr}")
+                        return False
+                    
+                    # Шаг 2: Устанавливаем период = 1 Гц (1 секунда)
+                    print(f"Установка периода PPS для {interface}")
                     result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-p", "1000000000"], 
                                          capture_output=True, text=True, timeout=10)
                     if result.returncode == 0:

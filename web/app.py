@@ -30,6 +30,14 @@ monitoring_data = {}
 timenic_monitoring_data = {}
 monitoring_active = False
 
+# Кэш для оптимизации
+nic_cache = {}
+timenic_cache = {}
+last_timenic_refresh = 0
+CACHE_DURATION = 5  # секунд
+TIMENIC_REFRESH_INTERVAL = 10  # секунд
+MONITORING_INTERVAL = 3  # секунд вместо 1
+
 
 @app.route('/')
 def index():
@@ -43,11 +51,24 @@ def get_nics():
     try:
         nics = nic_manager.get_all_nics()
         data = []
+        current_time = time.time()
         
         for nic in nics:
-            # Получаем дополнительную информацию
-            stats = nic_manager.get_statistics(nic.name)
-            temp = nic_manager.get_temperature(nic.name)
+            # Проверяем кэш для статистики
+            cache_key = f"{nic.name}_api_stats"
+            if cache_key in nic_cache and (current_time - nic_cache[cache_key]['timestamp']) < CACHE_DURATION:
+                cached_data = nic_cache[cache_key]['data']
+                stats = cached_data['stats']
+                temp = cached_data['temperature']
+            else:
+                # Получаем дополнительную информацию
+                stats = nic_manager.get_statistics(nic.name)
+                temp = nic_manager.get_temperature(nic.name)
+                # Кэшируем данные
+                nic_cache[cache_key] = {
+                    'data': {'stats': stats, 'temperature': temp},
+                    'timestamp': current_time
+                }
             
             data.append({
                 'name': nic.name,
@@ -381,46 +402,74 @@ def start_monitoring():
         
         # Запускаем поток мониторинга
         def monitoring_thread():
-            global monitoring_data, timenic_monitoring_data
+            global monitoring_data, timenic_monitoring_data, nic_cache, timenic_cache, last_timenic_refresh
             
             while monitoring_active:
                 try:
-                    # Мониторинг обычных NIC карт
+                    current_time = time.time()
+                    
+                    # Мониторинг обычных NIC карт с кэшированием
                     data = {}
                     for interface in interfaces:
-                        nic = nic_manager.get_nic_by_name(interface)
-                        if nic:
-                            stats = nic_manager.get_statistics(interface)
-                            temp = nic_manager.get_temperature(interface)
-                            data[interface] = {
-                                'stats': stats,
-                                'temperature': temp,
-                                'status': nic.status,
-                                'timestamp': datetime.now().isoformat()
-                            }
+                        # Проверяем кэш
+                        cache_key = f"{interface}_stats"
+                        if cache_key in nic_cache and (current_time - nic_cache[cache_key]['timestamp']) < CACHE_DURATION:
+                            data[interface] = nic_cache[cache_key]['data']
+                        else:
+                            nic = nic_manager.get_nic_by_name(interface)
+                            if nic:
+                                stats = nic_manager.get_statistics(interface)
+                                temp = nic_manager.get_temperature(interface)
+                                cache_data = {
+                                    'stats': stats,
+                                    'temperature': temp,
+                                    'status': nic.status,
+                                    'timestamp': datetime.now().isoformat()
+                                }
+                                data[interface] = cache_data
+                                # Сохраняем в кэш
+                                nic_cache[cache_key] = {
+                                    'data': cache_data,
+                                    'timestamp': current_time
+                                }
                     
                     monitoring_data = data
                     
-                    # Мониторинг TimeNIC карт
+                    # Мониторинг TimeNIC карт с оптимизированным обновлением
                     timenic_data = {}
-                    # Обновляем список устройств
-                    timenic_manager.refresh()
+                    
+                    # Обновляем список TimeNIC реже
+                    if (current_time - last_timenic_refresh) > TIMENIC_REFRESH_INTERVAL:
+                        timenic_manager.refresh()
+                        last_timenic_refresh = current_time
+                    
                     timenics = timenic_manager.get_all_timenics()
                     for timenic in timenics:
-                        stats = timenic_manager.get_statistics(timenic.name)
-                        timenic_data[timenic.name] = {
-                            'stats': stats,
-                            'temperature': timenic.temperature,
-                            'status': timenic.status,
-                            'pps_mode': timenic.pps_mode.value,
-                            'tcxo_enabled': timenic.tcxo_enabled,
-                            'ptm_status': timenic.ptm_status.value,
-                            'sma1_status': timenic.sma1_status,
-                            'sma2_status': timenic.sma2_status,
-                            'phc_offset': timenic.phc_offset,
-                            'phc_frequency': timenic.phc_frequency,
-                            'timestamp': datetime.now().isoformat()
-                        }
+                        # Проверяем кэш для TimeNIC
+                        cache_key = f"timenic_{timenic.name}"
+                        if cache_key in timenic_cache and (current_time - timenic_cache[cache_key]['timestamp']) < CACHE_DURATION:
+                            timenic_data[timenic.name] = timenic_cache[cache_key]['data']
+                        else:
+                            stats = timenic_manager.get_statistics(timenic.name)
+                            cache_data = {
+                                'stats': stats,
+                                'temperature': timenic.temperature,
+                                'status': timenic.status,
+                                'pps_mode': timenic.pps_mode.value,
+                                'tcxo_enabled': timenic.tcxo_enabled,
+                                'ptm_status': timenic.ptm_status.value,
+                                'sma1_status': timenic.sma1_status,
+                                'sma2_status': timenic.sma2_status,
+                                'phc_offset': timenic.phc_offset,
+                                'phc_frequency': timenic.phc_frequency,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            timenic_data[timenic.name] = cache_data
+                            # Сохраняем в кэш
+                            timenic_cache[cache_key] = {
+                                'data': cache_data,
+                                'timestamp': current_time
+                            }
                     
                     timenic_monitoring_data = timenic_data
                     
@@ -429,9 +478,10 @@ def start_monitoring():
                         'nics': data,
                         'timenics': timenic_data
                     })
-                    time.sleep(1)  # Обновление каждую секунду
+                    time.sleep(MONITORING_INTERVAL)  # Обновление каждые 3 секунды
                 except Exception as e:
                     print(f"Ошибка в потоке мониторинга: {e}")
+                    time.sleep(MONITORING_INTERVAL)
         
         thread = threading.Thread(target=monitoring_thread, daemon=True)
         thread.start()
