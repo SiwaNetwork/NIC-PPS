@@ -38,6 +38,10 @@ CACHE_DURATION = 5  # секунд
 TIMENIC_REFRESH_INTERVAL = 10  # секунд
 MONITORING_INTERVAL = 3  # секунд вместо 1
 
+# Глобальные переменные для синхронизации
+phc_sync_process = None
+ts2phc_sync_process = None
+
 
 @app.route('/')
 def index():
@@ -59,14 +63,12 @@ def get_nics():
             if cache_key in nic_cache and (current_time - nic_cache[cache_key]['timestamp']) < CACHE_DURATION:
                 cached_data = nic_cache[cache_key]['data']
                 stats = cached_data['stats']
-                temp = cached_data['temperature']
             else:
                 # Получаем дополнительную информацию
                 stats = nic_manager.get_statistics(nic.name)
-                temp = nic_manager.get_temperature(nic.name)
                 # Кэшируем данные
                 nic_cache[cache_key] = {
-                    'data': {'stats': stats, 'temperature': temp},
+                    'data': {'stats': stats},
                     'timestamp': current_time
                 }
             
@@ -79,7 +81,6 @@ def get_nics():
                 'duplex': nic.duplex,
                 'pps_mode': nic.pps_mode.value,
                 'tcxo_enabled': nic.tcxo_enabled,
-                'temperature': temp,
                 'stats': stats
             })
         
@@ -106,14 +107,25 @@ def get_timenics():
                 'mac_address': timenic.mac_address,
                 'ip_address': timenic.ip_address,
                 'status': timenic.status,
+                'speed': timenic.speed,
+                'duplex': timenic.duplex,
                 'pps_mode': timenic.pps_mode.value,
                 'tcxo_enabled': timenic.tcxo_enabled,
-                'ptm_status': timenic.ptm_status.value,
-                'sma1_status': timenic.sma1_status,
-                'sma2_status': timenic.sma2_status,
-                'phc_offset': timenic.phc_offset,
-                'phc_frequency': timenic.phc_frequency,
-                'temperature': timenic.temperature,
+                'ptp_info': {
+                    'phc_index': timenic.ptp_info.phc_index,
+                    'clock_id': timenic.ptp_info.clock_id,
+                    'max_adj': timenic.ptp_info.max_adj,
+                    'num_alarms': timenic.ptp_info.num_alarms,
+                    'num_external_timestamps': timenic.ptp_info.num_external_timestamps,
+                    'num_periodic_outputs': timenic.ptp_info.num_periodic_outputs,
+                    'num_programmable_pins': timenic.ptp_info.num_programmable_pins,
+                    'pps_capabilities': timenic.ptp_info.pps_capabilities
+                },
+                'ptm_status': {
+                    'enabled': timenic.ptm_status.enabled,
+                    'master': timenic.ptm_status.master,
+                    'slave': timenic.ptm_status.slave
+                },
                 'stats': stats
             })
         
@@ -124,11 +136,11 @@ def get_timenics():
 
 @app.route('/api/timenics/<interface>')
 def get_timenic_info(interface):
-    """API для получения информации о конкретной TimeNIC карте"""
+    """API для получения детальной информации о TimeNIC"""
     try:
-        timenic = timenic_manager.get_timenic_by_name(interface)
+        timenic = timenic_manager.get_timenic_info(interface)
         if not timenic:
-            return jsonify({'success': False, 'error': 'TimeNIC карта не найдена'})
+            return jsonify({'success': False, 'error': 'TimeNIC не найден'})
         
         stats = timenic_manager.get_statistics(interface)
         
@@ -137,14 +149,25 @@ def get_timenic_info(interface):
             'mac_address': timenic.mac_address,
             'ip_address': timenic.ip_address,
             'status': timenic.status,
+            'speed': timenic.speed,
+            'duplex': timenic.duplex,
             'pps_mode': timenic.pps_mode.value,
             'tcxo_enabled': timenic.tcxo_enabled,
-            'ptm_status': timenic.ptm_status.value,
-            'sma1_status': timenic.sma1_status,
-            'sma2_status': timenic.sma2_status,
-            'phc_offset': timenic.phc_offset,
-            'phc_frequency': timenic.phc_frequency,
-            'temperature': timenic.temperature,
+            'ptp_info': {
+                'phc_index': timenic.ptp_info.phc_index,
+                'clock_id': timenic.ptp_info.clock_id,
+                'max_adj': timenic.ptp_info.max_adj,
+                'num_alarms': timenic.ptp_info.num_alarms,
+                'num_external_timestamps': timenic.ptp_info.num_external_timestamps,
+                'num_periodic_outputs': timenic.ptp_info.num_periodic_outputs,
+                'num_programmable_pins': timenic.ptp_info.num_programmable_pins,
+                'pps_capabilities': timenic.ptp_info.pps_capabilities
+            },
+            'ptm_status': {
+                'enabled': timenic.ptm_status.enabled,
+                'master': timenic.ptm_status.master,
+                'slave': timenic.ptm_status.slave
+            },
             'stats': stats
         }
         
@@ -155,92 +178,83 @@ def get_timenic_info(interface):
 
 @app.route('/api/timenics/<interface>/pps', methods=['POST'])
 def set_timenic_pps_mode(interface):
-    """API для установки режима PPS для TimeNIC"""
+    """API для установки PPS режима TimeNIC"""
     try:
         data = request.get_json()
-        pps_mode = data.get('pps_mode')
+        mode = data.get('mode')
         
-        if not pps_mode:
-            return jsonify({'success': False, 'error': 'Не указан режим PPS'})
+        if mode not in ['disabled', 'input', 'output']:
+            return jsonify({'success': False, 'error': 'Неверный режим PPS'})
         
-        from core.timenic_manager import PPSMode
-        success = timenic_manager.set_pps_mode(interface, PPSMode(pps_mode))
-        
+        success = timenic_manager.set_pps_mode(interface, PPSMode(mode))
         if success:
-            return jsonify({'success': True, 'message': f'PPS режим {pps_mode} установлен для {interface}'})
+            # Обновляем информацию о карте
+            timenic_manager.refresh()
+            return jsonify({'success': True, 'message': f'PPS режим установлен: {mode}'})
         else:
-            return jsonify({'success': False, 'error': f'Не удалось установить PPS режим для {interface}'})
+            return jsonify({'success': False, 'error': 'Не удалось установить PPS режим'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/timenics/<interface>/tcxo', methods=['POST'])
 def set_timenic_tcxo(interface):
-    """API для управления TCXO для TimeNIC"""
+    """API для управления TCXO TimeNIC"""
     try:
         data = request.get_json()
-        enabled = data.get('enabled')
+        enabled = data.get('enabled', False)
         
-        if enabled is None:
-            return jsonify({'success': False, 'error': 'Не указан статус TCXO'})
-        
-        success = timenic_manager.set_tcxo_enabled(interface, enabled)
-        
+        success = timenic_manager.set_tcxo(interface, enabled)
         if success:
-            return jsonify({'success': True, 'message': f'TCXO {"включен" if enabled else "выключен"} для {interface}'})
+            return jsonify({'success': True, 'message': f'TCXO {"включен" if enabled else "выключен"}'})
         else:
-            return jsonify({'success': False, 'error': f'Не удалось настроить TCXO для {interface}'})
+            return jsonify({'success': False, 'error': 'Не удалось изменить состояние TCXO'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/timenics/<interface>/ptm', methods=['POST'])
 def set_timenic_ptm(interface):
-    """API для управления PTM для TimeNIC"""
+    """API для управления PTM TimeNIC"""
     try:
         data = request.get_json()
-        enabled = data.get('enabled')
+        enabled = data.get('enabled', False)
+        master = data.get('master', False)
         
-        if enabled is None:
-            return jsonify({'success': False, 'error': 'Не указан статус PTM'})
-        
-        if enabled:
-            success = timenic_manager.enable_ptm(interface)
-        else:
-            success = timenic_manager.disable_ptm(interface)
-        
+        success = timenic_manager.set_ptm(interface, enabled, master)
         if success:
-            return jsonify({'success': True, 'message': f'PTM {"включен" if enabled else "выключен"} для {interface}'})
+            return jsonify({'success': True, 'message': f'PTM {"включен" if enabled else "выключен"}'})
         else:
-            return jsonify({'success': False, 'error': f'Не удалось настроить PTM для {interface}'})
+            return jsonify({'success': False, 'error': 'Не удалось изменить состояние PTM'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/timenics/<interface>/phc-sync', methods=['POST'])
 def start_timenic_phc_sync(interface):
-    """API для запуска синхронизации PHC для TimeNIC"""
+    """API для запуска PHC синхронизации TimeNIC"""
     try:
-        success = timenic_manager.start_phc_synchronization(interface)
+        data = request.get_json()
+        target_ptp = data.get('target_ptp')
         
+        success = timenic_manager.start_phc_sync(interface, target_ptp)
         if success:
-            return jsonify({'success': True, 'message': f'Синхронизация PHC запущена для {interface}'})
+            return jsonify({'success': True, 'message': 'PHC синхронизация запущена'})
         else:
-            return jsonify({'success': False, 'error': f'Не удалось запустить синхронизацию PHC для {interface}'})
+            return jsonify({'success': False, 'error': 'Не удалось запустить PHC синхронизацию'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/nics/<interface>')
 def get_nic_info(interface):
-    """API для получения информации о конкретной NIC карте"""
+    """API для получения детальной информации о NIC"""
     try:
-        nic = nic_manager.get_nic_by_name(interface)
+        nic = nic_manager.get_nic_info(interface)
         if not nic:
-            return jsonify({'success': False, 'error': 'NIC карта не найдена'})
+            return jsonify({'success': False, 'error': 'NIC не найден'})
         
         stats = nic_manager.get_statistics(interface)
-        temp = nic_manager.get_temperature(interface)
         
         data = {
             'name': nic.name,
@@ -251,7 +265,6 @@ def get_nic_info(interface):
             'duplex': nic.duplex,
             'pps_mode': nic.pps_mode.value,
             'tcxo_enabled': nic.tcxo_enabled,
-            'temperature': temp,
             'stats': stats
         }
         
@@ -262,56 +275,128 @@ def get_nic_info(interface):
 
 @app.route('/api/nics/<interface>/pps', methods=['POST'])
 def set_pps_mode(interface):
-    """API для установки режима PPS"""
+    """API для установки PPS режима NIC"""
     try:
         data = request.get_json()
         mode = data.get('mode')
         
-        if not mode:
-            return jsonify({'success': False, 'error': 'Не указан режим PPS'})
+        print(f"=== API: Установка PPS режима {interface} -> {mode} ===")
         
-        # Проверяем существование карты
-        nic = nic_manager.get_nic_by_name(interface)
-        if not nic:
-            return jsonify({'success': False, 'error': 'NIC карта не найдена'})
+        if mode not in ['disabled', 'input', 'output']:
+            return jsonify({'success': False, 'error': 'Неверный режим PPS'})
         
-        # Устанавливаем режим
-        pps_mode = PPSMode(mode)
-        success = nic_manager.set_pps_mode(interface, pps_mode)
+        success = nic_manager.set_pps_mode(interface, PPSMode(mode))
+        print(f"Результат set_pps_mode: {success}")
         
         if success:
-            return jsonify({'success': True, 'message': f'PPS режим изменен на {mode}'})
+            # Обновляем информацию о карте
+            print(f"Обновление информации о NIC {interface}")
+            updated_nic = nic_manager.refresh_nic_info(interface)
+            print(f"Обновленная информация: {updated_nic}")
+            
+            return jsonify({'success': True, 'message': f'PPS режим установлен: {mode}'})
         else:
-            return jsonify({'success': False, 'error': 'Ошибка при изменении PPS режима'})
-    
+            print(f"Ошибка установки PPS режима для {interface}")
+            return jsonify({'success': False, 'error': 'Не удалось установить PPS режим'})
     except Exception as e:
+        print(f"Исключение в API set_pps_mode: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/nics/<interface>/tcxo', methods=['POST'])
 def set_tcxo(interface):
-    """API для настройки TCXO"""
+    """API для управления TCXO NIC"""
     try:
         data = request.get_json()
-        enabled = data.get('enabled')
+        enabled = data.get('enabled', False)
         
-        if enabled is None:
-            return jsonify({'success': False, 'error': 'Не указан статус TCXO'})
-        
-        # Проверяем существование карты
-        nic = nic_manager.get_nic_by_name(interface)
-        if not nic:
-            return jsonify({'success': False, 'error': 'NIC карта не найдена'})
-        
-        # Устанавливаем TCXO
-        success = nic_manager.set_tcxo_enabled(interface, enabled)
-        
+        success = nic_manager.set_tcxo(interface, enabled)
         if success:
-            status = "включен" if enabled else "отключен"
-            return jsonify({'success': True, 'message': f'TCXO {status}'})
+            return jsonify({'success': True, 'message': f'TCXO {"включен" if enabled else "выключен"}'})
         else:
-            return jsonify({'success': False, 'error': 'Ошибка при настройке TCXO'})
-    
+            return jsonify({'success': False, 'error': 'Не удалось изменить состояние TCXO'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/sync/phc/start', methods=['POST'])
+def start_phc_sync():
+    """API для запуска PHC2SYS синхронизации"""
+    global phc_sync_process
+    try:
+        data = request.get_json()
+        source_ptp = data.get('source_ptp')
+        target_ptp = data.get('target_ptp')
+        
+        if not source_ptp or not target_ptp:
+            return jsonify({'success': False, 'error': 'Необходимо указать source_ptp и target_ptp'})
+        
+        success = nic_manager.start_phc_sync(source_ptp, target_ptp)
+        if success:
+            return jsonify({'success': True, 'message': f'PHC синхронизация запущена: {source_ptp} -> {target_ptp}'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось запустить PHC синхронизацию'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/sync/phc/stop', methods=['POST'])
+def stop_phc_sync():
+    """API для остановки PHC2SYS синхронизации"""
+    global phc_sync_process
+    try:
+        success = nic_manager.stop_phc_sync()
+        if success:
+            return jsonify({'success': True, 'message': 'PHC синхронизация остановлена'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось остановить PHC синхронизацию'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/sync/ts2phc/start', methods=['POST'])
+def start_ts2phc_sync():
+    """API для запуска TS2PHC синхронизации"""
+    global ts2phc_sync_process
+    try:
+        data = request.get_json()
+        source_ptp = data.get('source_ptp')
+        target_ptp = data.get('target_ptp')
+        
+        if not source_ptp or not target_ptp:
+            return jsonify({'success': False, 'error': 'Необходимо указать source_ptp и target_ptp'})
+        
+        success = nic_manager.start_ts2phc_sync(source_ptp, target_ptp)
+        if success:
+            return jsonify({'success': True, 'message': f'TS2PHC синхронизация запущена: {source_ptp} -> {target_ptp}'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось запустить TS2PHC синхронизацию'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/sync/ts2phc/stop', methods=['POST'])
+def stop_ts2phc_sync():
+    """API для остановки TS2PHC синхронизации"""
+    global ts2phc_sync_process
+    try:
+        success = nic_manager.stop_ts2phc_sync()
+        if success:
+            return jsonify({'success': True, 'message': 'TS2PHC синхронизация остановлена'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось остановить TS2PHC синхронизацию'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/sync/status')
+def get_sync_status():
+    """API для получения статуса синхронизации"""
+    try:
+        status = nic_manager.get_sync_status()
+        return jsonify({'success': True, 'data': status})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -320,68 +405,63 @@ def set_tcxo(interface):
 def manage_config():
     """API для управления конфигурацией"""
     if request.method == 'GET':
-        # Возвращаем текущую конфигурацию
         try:
-            nics = nic_manager.get_all_nics()
-            config_data = []
+            # Получаем текущую конфигурацию
+            config = {
+                'nics': [],
+                'timenics': []
+            }
             
+            # Конфигурация обычных NIC
+            nics = nic_manager.get_all_nics()
             for nic in nics:
-                config_data.append({
-                    'interface': nic.name,
+                config['nics'].append({
+                    'name': nic.name,
                     'pps_mode': nic.pps_mode.value,
                     'tcxo_enabled': nic.tcxo_enabled
                 })
             
-            return jsonify({'success': True, 'data': config_data})
+            # Конфигурация TimeNIC
+            timenics = timenic_manager.get_all_timenics()
+            for timenic in timenics:
+                config['timenics'].append({
+                    'name': timenic.name,
+                    'pps_mode': timenic.pps_mode.value,
+                    'tcxo_enabled': timenic.tcxo_enabled,
+                    'ptm_enabled': timenic.ptm_status.enabled,
+                    'ptm_master': timenic.ptm_status.master
+                })
+            
+            return jsonify({'success': True, 'data': config})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
     
     elif request.method == 'POST':
-        # Применяем конфигурацию
         try:
             data = request.get_json()
-            if not isinstance(data, list):
-                return jsonify({'success': False, 'error': 'Неверный формат конфигурации'})
             
-            results = []
-            for nic_config in data:
-                interface = nic_config.get('interface')
-                if not interface:
-                    continue
+            # Применяем конфигурацию к обычным NIC
+            for nic_config in data.get('nics', []):
+                name = nic_config['name']
+                pps_mode = PPSMode(nic_config['pps_mode'])
+                tcxo_enabled = nic_config['tcxo_enabled']
                 
-                # Проверяем существование карты
-                nic = nic_manager.get_nic_by_name(interface)
-                if not nic:
-                    results.append({
-                        'interface': interface,
-                        'success': False,
-                        'error': 'NIC карта не найдена'
-                    })
-                    continue
-                
-                # Применяем PPS настройки
-                if 'pps_mode' in nic_config:
-                    mode = PPSMode(nic_config['pps_mode'])
-                    success = nic_manager.set_pps_mode(interface, mode)
-                    results.append({
-                        'interface': interface,
-                        'setting': 'pps_mode',
-                        'success': success,
-                        'value': mode.value
-                    })
-                
-                # Применяем TCXO настройки
-                if 'tcxo_enabled' in nic_config:
-                    enabled = nic_config['tcxo_enabled']
-                    success = nic_manager.set_tcxo_enabled(interface, enabled)
-                    results.append({
-                        'interface': interface,
-                        'setting': 'tcxo_enabled',
-                        'success': success,
-                        'value': enabled
-                    })
+                nic_manager.set_pps_mode(name, pps_mode)
+                nic_manager.set_tcxo(name, tcxo_enabled)
             
-            return jsonify({'success': True, 'results': results})
+            # Применяем конфигурацию к TimeNIC
+            for timenic_config in data.get('timenics', []):
+                name = timenic_config['name']
+                pps_mode = PPSMode(timenic_config['pps_mode'])
+                tcxo_enabled = timenic_config['tcxo_enabled']
+                ptm_enabled = timenic_config.get('ptm_enabled', False)
+                ptm_master = timenic_config.get('ptm_master', False)
+                
+                timenic_manager.set_pps_mode(name, pps_mode)
+                timenic_manager.set_tcxo(name, tcxo_enabled)
+                timenic_manager.set_ptm(name, ptm_enabled, ptm_master)
+            
+            return jsonify({'success': True, 'message': 'Конфигурация применена'})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
 
@@ -391,103 +471,47 @@ def start_monitoring():
     """API для запуска мониторинга"""
     global monitoring_active
     
+    if monitoring_active:
+        return jsonify({'success': False, 'error': 'Мониторинг уже запущен'})
+    
     try:
         data = request.get_json()
-        interfaces = data.get('interfaces', [])
+        interface = data.get('interface')
         
-        if not interfaces:
-            return jsonify({'success': False, 'error': 'Не указаны интерфейсы для мониторинга'})
+        if not interface:
+            return jsonify({'success': False, 'error': 'Необходимо указать интерфейс'})
         
         monitoring_active = True
         
-        # Запускаем поток мониторинга
         def monitoring_thread():
-            global monitoring_data, timenic_monitoring_data, nic_cache, timenic_cache, last_timenic_refresh
-            
+            global monitoring_active, monitoring_data
             while monitoring_active:
                 try:
-                    current_time = time.time()
+                    # Получаем статистику
+                    stats = nic_manager.get_statistics(interface)
+                    ptp_stats = nic_manager.get_ptp_statistics(interface)
                     
-                    # Мониторинг обычных NIC карт с кэшированием
-                    data = {}
-                    for interface in interfaces:
-                        # Проверяем кэш
-                        cache_key = f"{interface}_stats"
-                        if cache_key in nic_cache and (current_time - nic_cache[cache_key]['timestamp']) < CACHE_DURATION:
-                            data[interface] = nic_cache[cache_key]['data']
-                        else:
-                            nic = nic_manager.get_nic_by_name(interface)
-                            if nic:
-                                stats = nic_manager.get_statistics(interface)
-                                temp = nic_manager.get_temperature(interface)
-                                cache_data = {
-                                    'stats': stats,
-                                    'temperature': temp,
-                                    'status': nic.status,
-                                    'timestamp': datetime.now().isoformat()
-                                }
-                                data[interface] = cache_data
-                                # Сохраняем в кэш
-                                nic_cache[cache_key] = {
-                                    'data': cache_data,
-                                    'timestamp': current_time
-                                }
+                    monitoring_data = {
+                        'timestamp': datetime.now().isoformat(),
+                        'interface': interface,
+                        'stats': stats,
+                        'ptp_stats': ptp_stats
+                    }
                     
-                    monitoring_data = data
+                    # Отправляем данные через WebSocket
+                    socketio.emit('monitoring_data', monitoring_data)
                     
-                    # Мониторинг TimeNIC карт с оптимизированным обновлением
-                    timenic_data = {}
-                    
-                    # Обновляем список TimeNIC реже
-                    if (current_time - last_timenic_refresh) > TIMENIC_REFRESH_INTERVAL:
-                        timenic_manager.refresh()
-                        last_timenic_refresh = current_time
-                    
-                    timenics = timenic_manager.get_all_timenics()
-                    for timenic in timenics:
-                        # Проверяем кэш для TimeNIC
-                        cache_key = f"timenic_{timenic.name}"
-                        if cache_key in timenic_cache and (current_time - timenic_cache[cache_key]['timestamp']) < CACHE_DURATION:
-                            timenic_data[timenic.name] = timenic_cache[cache_key]['data']
-                        else:
-                            stats = timenic_manager.get_statistics(timenic.name)
-                            cache_data = {
-                                'stats': stats,
-                                'temperature': timenic.temperature,
-                                'status': timenic.status,
-                                'pps_mode': timenic.pps_mode.value,
-                                'tcxo_enabled': timenic.tcxo_enabled,
-                                'ptm_status': timenic.ptm_status.value,
-                                'sma1_status': timenic.sma1_status,
-                                'sma2_status': timenic.sma2_status,
-                                'phc_offset': timenic.phc_offset,
-                                'phc_frequency': timenic.phc_frequency,
-                                'timestamp': datetime.now().isoformat()
-                            }
-                            timenic_data[timenic.name] = cache_data
-                            # Сохраняем в кэш
-                            timenic_cache[cache_key] = {
-                                'data': cache_data,
-                                'timestamp': current_time
-                            }
-                    
-                    timenic_monitoring_data = timenic_data
-                    
-                    # Отправляем обновления через WebSocket
-                    socketio.emit('monitoring_data', {
-                        'nics': data,
-                        'timenics': timenic_data
-                    })
-                    time.sleep(MONITORING_INTERVAL)  # Обновление каждые 3 секунды
+                    time.sleep(MONITORING_INTERVAL)
                 except Exception as e:
-                    print(f"Ошибка в потоке мониторинга: {e}")
+                    print(f"Ошибка мониторинга: {e}")
                     time.sleep(MONITORING_INTERVAL)
         
         thread = threading.Thread(target=monitoring_thread, daemon=True)
         thread.start()
         
-        return jsonify({'success': True, 'message': 'Мониторинг запущен'})
+        return jsonify({'success': True, 'message': f'Мониторинг запущен для {interface}'})
     except Exception as e:
+        monitoring_active = False
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -502,13 +526,13 @@ def stop_monitoring():
 @socketio.on('connect')
 def handle_connect():
     """Обработчик подключения WebSocket"""
-    print('Client connected')
+    print('Клиент подключился')
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Обработчик отключения WebSocket"""
-    print('Client disconnected')
+    print('Клиент отключился')
 
 
 if __name__ == '__main__':

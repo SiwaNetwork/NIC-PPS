@@ -881,7 +881,7 @@ class MonitoringWidget(QWidget):
                 self.traffic_data['rx'].append(rx_speed)
                 self.traffic_data['tx'].append(tx_speed)
                 self.traffic_data['time'].append(current_time)
-            
+        
             # Обновляем данные PTP трафика
             if 'ptp_rx_packets' in stats and 'ptp_tx_packets' in stats:
                 if self.ptp_traffic_data['time']:
@@ -1037,7 +1037,7 @@ class MonitoringWidget(QWidget):
             stats_text += f"Ошибки отправки: {stats.get('tx_errors', 0):,}\n"
             stats_text += f"Отброшено при приеме: {stats.get('rx_dropped', 0):,}\n"
             stats_text += f"Отброшено при отправке: {stats.get('tx_dropped', 0):,}\n"
-            
+        
             # PTP статистика
             ptp_rx_packets = stats.get('ptp_rx_packets', 0)
             ptp_tx_packets = stats.get('ptp_tx_packets', 0)

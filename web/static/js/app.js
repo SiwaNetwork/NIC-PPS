@@ -4,23 +4,76 @@ let trafficChart = null;
 let temperatureChart = null;
 let monitoringData = {};
 let currentMonitoringInterface = null;
+let isInitialized = false;
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
+    // Быстрая инициализация основных элементов
+    initializeBasicUI();
+    
+    // Ленивая инициализация остальных компонентов
+    setTimeout(() => {
     initializeSocket();
     refreshNICs();
     refreshTimeNICs();
+    }, 100);
+    
+    // Инициализация графиков только при необходимости
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.getAttribute('data-bs-target') === '#monitoring') {
+            if (!isInitialized) {
     initializeCharts();
+                isInitialized = true;
+            }
+        }
+    });
     
     // Обработчики событий
-    document.getElementById('nicSelect').addEventListener('change', onNicSelectChange);
-    document.getElementById('monitorNicSelect').addEventListener('change', onMonitorNicSelectChange);
-    document.getElementById('configFile').addEventListener('change', onConfigFileChange);
+    setupEventListeners();
 });
+
+// Быстрая инициализация UI
+function initializeBasicUI() {
+    // Показываем индикатор загрузки
+    const loadingElements = document.querySelectorAll('.loading-indicator');
+    loadingElements.forEach(el => {
+        el.style.display = 'block';
+    });
+    
+    // Обновляем статус соединения
+    updateConnectionStatus(false);
+}
+
+// Настройка обработчиков событий
+function setupEventListeners() {
+    // Используем делегирование событий для лучшей производительности
+    document.addEventListener('change', function(e) {
+        if (e.target.id === 'nicSelect') {
+            onNicSelectChange();
+        } else if (e.target.id === 'monitorNicSelect') {
+            onMonitorNicSelectChange();
+        } else if (e.target.id === 'configFile') {
+            onConfigFileChange(e);
+        }
+    });
+    
+    // Обработчики для кнопок
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('btn-refresh')) {
+            e.preventDefault();
+            refreshNICs();
+        }
+});
+}
 
 // Инициализация WebSocket соединения
 function initializeSocket() {
-    socket = io();
+    try {
+        socket = io({
+            timeout: 5000,
+            reconnection: true,
+            reconnectionDelay: 1000
+        });
     
     socket.on('connect', function() {
         updateConnectionStatus(true);
@@ -33,91 +86,174 @@ function initializeSocket() {
     socket.on('monitoring_data', function(data) {
         updateMonitoringData(data);
     });
+        
+        socket.on('connect_error', function() {
+            console.log('WebSocket connection error');
+            updateConnectionStatus(false);
+        });
+    } catch (error) {
+        console.error('WebSocket initialization error:', error);
+        updateConnectionStatus(false);
+    }
 }
 
 // Обновление статуса соединения
 function updateConnectionStatus(connected) {
     const statusElement = document.getElementById('connection-status');
+    if (statusElement) {
     if (connected) {
         statusElement.innerHTML = '<i class="fas fa-circle text-success"></i> Подключено';
     } else {
-        statusElement.innerHTML = '<i class="fas fa-circle text-danger"></i> Отключено';
+            statusElement.innerHTML = '<i class="fas fa-circle text-warning"></i> Отключено';
+        }
     }
 }
 
-// Обновление списка NIC карт
-function refreshNICs() {
-    fetch('/api/nics')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                updateNICTable(data.data);
-                updateNICSelects(data.data);
-            } else {
-                showAlert('Ошибка', 'Не удалось загрузить список NIC карт: ' + data.error);
-            }
-        })
-        .catch(error => {
-            showAlert('Ошибка', 'Ошибка сети: ' + error.message);
-        });
-}
+// Обновление списка NIC карт с кэшированием
+let nicCache = {};
+let lastNicRefresh = 0;
+const NIC_CACHE_DURATION = 5000; // 5 секунд
 
-// Обновление таблицы NIC карт
-function updateNICTable(nics) {
-    const tbody = document.getElementById('nicTableBody');
-    tbody.innerHTML = '';
+function refreshNICs() {
+    const now = Date.now();
     
-    if (nics.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">NIC карты не обнаружены</td></tr>';
+    // Проверяем кэш
+    if (nicCache.data && (now - lastNicRefresh) < NIC_CACHE_DURATION) {
+        updateNICTable(nicCache.data);
+        updateNICSelects(nicCache.data);
         return;
     }
     
+    // Показываем индикатор загрузки
+    showLoadingIndicator('nicTableBody');
+    
+    fetch('/api/nics')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Кэшируем данные
+                nicCache.data = data.data;
+                lastNicRefresh = now;
+                
+                updateNICTable(data.data);
+                updateNICSelects(data.data);
+                hideLoadingIndicator('nicTableBody');
+            } else {
+                showAlert('Ошибка', 'Не удалось загрузить список NIC карт: ' + data.error);
+                hideLoadingIndicator('nicTableBody');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading NICs:', error);
+            showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+            hideLoadingIndicator('nicTableBody');
+        });
+}
+
+// Показать индикатор загрузки
+function showLoadingIndicator(elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    Загрузка...
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Скрыть индикатор загрузки
+function hideLoadingIndicator(elementId) {
+    const element = document.getElementById(elementId);
+    if (element && element.querySelector('.spinner-border')) {
+        // Индикатор будет заменен данными
+    }
+}
+
+// Обновление таблицы NIC карт с оптимизацией
+function updateNICTable(nics) {
+    const tbody = document.getElementById('nicTableBody');
+    if (!tbody) return;
+    
+    // Используем DocumentFragment для оптимизации
+    const fragment = document.createDocumentFragment();
+    
+    if (nics.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="9" class="text-center text-muted">NIC карты не обнаружены</td>';
+        fragment.appendChild(row);
+    } else {
     nics.forEach(nic => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td><strong>${nic.name}</strong></td>
-            <td><code>${nic.mac_address}</code></td>
-            <td>${nic.ip_address || 'N/A'}</td>
-            <td><span class="badge ${nic.status === 'up' ? 'bg-success' : 'bg-danger'}">${nic.status}</span></td>
-            <td>${nic.speed}</td>
-            <td><span class="badge bg-info">${nic.pps_mode}</span></td>
+                <td><strong>${escapeHtml(nic.name)}</strong></td>
+                <td><code>${escapeHtml(nic.mac_address)}</code></td>
+                <td>${escapeHtml(nic.ip_address || 'N/A')}</td>
+                <td><span class="badge ${nic.status === 'up' ? 'bg-success' : 'bg-danger'}">${escapeHtml(nic.status)}</span></td>
+                <td>${escapeHtml(nic.speed)}</td>
+                <td><span class="badge bg-info">${escapeHtml(nic.pps_mode)}</span></td>
             <td><i class="fas fa-${nic.tcxo_enabled ? 'check text-success' : 'times text-danger'}"></i></td>
             <td>${nic.temperature ? nic.temperature.toFixed(1) + '°C' : 'N/A'}</td>
             <td>
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary btn-sm" onclick="configureNIC('${nic.name}')">
+                        <button class="btn btn-outline-primary btn-sm" onclick="configureNIC('${escapeHtml(nic.name)}')">
                         <i class="fas fa-cog"></i>
                     </button>
-                    <button class="btn btn-outline-info btn-sm" onclick="showNICInfo('${nic.name}')">
+                        <button class="btn btn-outline-info btn-sm" onclick="showNICInfo('${escapeHtml(nic.name)}')">
                         <i class="fas fa-info"></i>
                     </button>
                 </div>
             </td>
         `;
-        tbody.appendChild(row);
+            fragment.appendChild(row);
     });
+    }
+    
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
 }
 
-// Обновление селектов NIC карт
+// Экранирование HTML для безопасности
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Обновление селектов NIC с оптимизацией
 function updateNICSelects(nics) {
     const nicSelect = document.getElementById('nicSelect');
     const monitorNicSelect = document.getElementById('monitorNicSelect');
     
-    // Очищаем существующие опции
-    nicSelect.innerHTML = '<option value="">Выберите карту...</option>';
-    monitorNicSelect.innerHTML = '<option value="">Выберите карту...</option>';
-    
+    if (nicSelect) {
+        nicSelect.innerHTML = '<option value="">Выберите NIC</option>';
     nics.forEach(nic => {
-        const option1 = document.createElement('option');
-        option1.value = nic.name;
-        option1.textContent = `${nic.name} (${nic.mac_address})`;
-        nicSelect.appendChild(option1);
-        
-        const option2 = document.createElement('option');
-        option2.value = nic.name;
-        option2.textContent = `${nic.name} (${nic.mac_address})`;
-        monitorNicSelect.appendChild(option2);
+            const option = document.createElement('option');
+            option.value = nic.name;
+            option.textContent = `${nic.name} (${nic.mac_address})`;
+            nicSelect.appendChild(option);
+        });
+    }
+    
+    if (monitorNicSelect) {
+        monitorNicSelect.innerHTML = '<option value="">Выберите NIC для мониторинга</option>';
+        nics.forEach(nic => {
+            const option = document.createElement('option');
+            option.value = nic.name;
+            option.textContent = `${nic.name} (${nic.mac_address})`;
+            monitorNicSelect.appendChild(option);
     });
+    }
 }
 
 // Обработчик изменения выбранной NIC карты
@@ -337,9 +473,12 @@ function applyConfig(config) {
 
 // Инициализация графиков
 function initializeCharts() {
+    console.log('Инициализация графиков...');
+    
     // График трафика
-    const trafficCtx = document.getElementById('trafficChart').getContext('2d');
-    trafficChart = new Chart(trafficCtx, {
+    const trafficCtx = document.getElementById('trafficChart');
+    if (trafficCtx) {
+        trafficChart = new Chart(trafficCtx.getContext('2d'), {
         type: 'line',
         data: {
             labels: [],
@@ -365,36 +504,31 @@ function initializeCharts() {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Байт/с'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Время'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Мониторинг трафика'
+                    }
                 }
             }
-        }
-    });
-    
-    // График температуры
-    const tempCtx = document.getElementById('temperatureChart').getContext('2d');
-    temperatureChart = new Chart(tempCtx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                label: 'Температура (°C)',
-                data: [],
-                borderColor: 'rgb(255, 159, 64)',
-                backgroundColor: 'rgba(255, 159, 64, 0.2)',
-                tension: 0.1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
-        }
-    });
+        });
+        console.log('График трафика инициализирован');
+    } else {
+        console.log('Элемент trafficChart не найден');
+    }
 }
 
 // Запуск мониторинга
@@ -405,19 +539,24 @@ function startMonitoring() {
         return;
     }
     
+    currentMonitoringInterface = nicName;
+    
     fetch('/api/monitoring/start', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ interfaces: [nicName] })
+        body: JSON.stringify({ interface: nicName })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            document.getElementById('startMonitoring').disabled = true;
-            document.getElementById('stopMonitoring').disabled = false;
             showAlert('Успех', 'Мониторинг запущен');
+            // Обновляем кнопки
+            const startBtn = document.querySelector('button[onclick="startMonitoring()"]');
+            const stopBtn = document.querySelector('button[onclick="stopMonitoring()"]');
+            if (startBtn) startBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
         } else {
             showAlert('Ошибка', data.error);
         }
@@ -435,9 +574,12 @@ function stopMonitoring() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            document.getElementById('startMonitoring').disabled = false;
-            document.getElementById('stopMonitoring').disabled = true;
             showAlert('Успех', 'Мониторинг остановлен');
+            // Обновляем кнопки
+            const startBtn = document.querySelector('button[onclick="startMonitoring()"]');
+            const stopBtn = document.querySelector('button[onclick="stopMonitoring()"]');
+            if (startBtn) startBtn.disabled = false;
+            if (stopBtn) stopBtn.disabled = true;
         } else {
             showAlert('Ошибка', data.error);
         }
@@ -449,6 +591,7 @@ function stopMonitoring() {
 
 // Обновление данных мониторинга
 function updateMonitoringData(data) {
+    console.log('Получены данные мониторинга:', data);
     monitoringData = data;
     updateCharts();
     updateStats();
@@ -456,11 +599,12 @@ function updateMonitoringData(data) {
 
 // Обновление графиков
 function updateCharts() {
-    if (!currentMonitoringInterface || !monitoringData[currentMonitoringInterface]) {
+    if (!monitoringData || !monitoringData.stats) {
+        console.log('Нет данных для обновления графиков');
         return;
     }
     
-    const data = monitoringData[currentMonitoringInterface];
+    const data = monitoringData;
     const timestamp = new Date().toLocaleTimeString();
     
     // Обновляем график трафика
@@ -468,6 +612,7 @@ function updateCharts() {
         const rxSpeed = data.stats.rx_bytes || 0;
         const txSpeed = data.stats.tx_bytes || 0;
         
+        if (trafficChart) {
         trafficChart.data.labels.push(timestamp);
         trafficChart.data.datasets[0].data.push(rxSpeed);
         trafficChart.data.datasets[1].data.push(txSpeed);
@@ -481,30 +626,22 @@ function updateCharts() {
         
         trafficChart.update();
     }
-    
-    // Обновляем график температуры
-    if (data.temperature) {
-        temperatureChart.data.labels.push(timestamp);
-        temperatureChart.data.datasets[0].data.push(data.temperature);
-        
-        // Ограничиваем количество точек
-        if (temperatureChart.data.labels.length > 20) {
-            temperatureChart.data.labels.shift();
-            temperatureChart.data.datasets[0].data.shift();
-        }
-        
-        temperatureChart.update();
     }
 }
 
 // Обновление статистики
 function updateStats() {
-    if (!currentMonitoringInterface || !monitoringData[currentMonitoringInterface]) {
+    if (!monitoringData) {
         return;
     }
     
-    const data = monitoringData[currentMonitoringInterface];
-    const statsDiv = document.getElementById('statsDisplay');
+    const data = monitoringData;
+    const statsContainer = document.getElementById('statsContainer');
+    
+    if (!statsContainer) {
+        console.log('Элемент statsContainer не найден');
+        return;
+    }
     
     let statsHtml = '';
     if (data.stats) {
@@ -512,29 +649,53 @@ function updateStats() {
             <div class="row">
                 <div class="col-6">
                     <strong>Принято пакетов:</strong><br>
+                    <span class="badge bg-primary">${data.stats.rx_packets || 0}</span><br><br>
                     <strong>Отправлено пакетов:</strong><br>
+                    <span class="badge bg-success">${data.stats.tx_packets || 0}</span><br><br>
                     <strong>Ошибки приема:</strong><br>
+                    <span class="badge bg-danger">${data.stats.rx_errors || 0}</span><br><br>
                     <strong>Ошибки отправки:</strong><br>
+                    <span class="badge bg-warning">${data.stats.tx_errors || 0}</span>
                 </div>
                 <div class="col-6">
-                    ${data.stats.rx_packets || 0}<br>
-                    ${data.stats.tx_packets || 0}<br>
-                    ${data.stats.rx_errors || 0}<br>
-                    ${data.stats.tx_errors || 0}<br>
+                    <strong>Принято байт:</strong><br>
+                    <span class="badge bg-info">${(data.stats.rx_bytes || 0).toLocaleString()}</span><br><br>
+                    <strong>Отправлено байт:</strong><br>
+                    <span class="badge bg-info">${(data.stats.tx_bytes || 0).toLocaleString()}</span><br><br>
+                    <strong>Отброшено при приеме:</strong><br>
+                    <span class="badge bg-secondary">${data.stats.rx_dropped || 0}</span><br><br>
+                    <strong>Отброшено при отправке:</strong><br>
+                    <span class="badge bg-secondary">${data.stats.tx_dropped || 0}</span>
                 </div>
             </div>
         `;
+        
+        // Добавляем PTP статистику если есть
+        if (data.ptp_stats) {
+            statsHtml += `
+                <hr>
+                <h6>PTP Статистика:</h6>
+                <div class="row">
+                    <div class="col-6">
+                        <strong>PTP RX пакеты:</strong><br>
+                        <span class="badge bg-primary">${data.ptp_stats.ptp_rx_packets || 0}</span><br><br>
+                        <strong>PTP TX пакеты:</strong><br>
+                        <span class="badge bg-success">${data.ptp_stats.ptp_tx_packets || 0}</span>
+                    </div>
+                    <div class="col-6">
+                        <strong>PTP Sync пакеты:</strong><br>
+                        <span class="badge bg-info">${data.ptp_stats.ptp_sync_packets || 0}</span><br><br>
+                        <strong>PTP Delay Req:</strong><br>
+                        <span class="badge bg-warning">${data.ptp_stats.ptp_delay_req_packets || 0}</span>
+                    </div>
+                </div>
+            `;
+    }
+    } else {
+        statsHtml = '<p class="text-muted">Нет данных статистики</p>';
     }
     
-    if (data.temperature) {
-        statsHtml += `<hr><strong>Температура:</strong> ${data.temperature.toFixed(1)}°C`;
-    }
-    
-    if (data.status) {
-        statsHtml += `<hr><strong>Статус:</strong> <span class="badge ${data.status === 'up' ? 'bg-success' : 'bg-danger'}">${data.status}</span>`;
-    }
-    
-    statsDiv.innerHTML = statsHtml || '<p class="text-muted">Нет данных</p>';
+    statsContainer.innerHTML = statsHtml;
 }
 
 // Вспомогательные функции

@@ -214,6 +214,29 @@ class IntelNICManager:
                 except Exception:
                     pass
             
+            # Если sysfs не работает, пробуем через testptp
+            if not pps_input and not pps_output:
+                ptp_device = self._get_ptp_device_for_interface(interface)
+                if ptp_device:
+                    try:
+                        # Проверяем текущую конфигурацию пинов через testptp
+                        result = subprocess.run(["sudo", "-n", "testptp", "-d", ptp_device, "-l"], 
+                                             capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            output = result.stdout
+                            print(f"testptp -l результат для {interface}: {output}")
+                            
+                            # Анализируем вывод для определения режима
+                            # func 2 = периодический выход (PPS output)
+                            # func 1 = внешние временные метки (PPS input)
+                            for line in output.split('\n'):
+                                if 'func 2' in line:
+                                    pps_output = True
+                                elif 'func 1' in line:
+                                    pps_input = True
+                    except Exception as e:
+                        print(f"Ошибка при проверке PPS через testptp: {e}")
+            
             if pps_input and pps_output:
                 return PPSMode.BOTH
             elif pps_input:
@@ -221,8 +244,8 @@ class IntelNICManager:
             elif pps_output:
                 return PPSMode.OUTPUT
             
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Ошибка в _get_pps_mode: {e}")
         
         return PPSMode.DISABLED
     
@@ -298,11 +321,10 @@ class IntelNICManager:
                 # Включаем оба режима
                 print(f"Включение PPS both для {interface}")
                 success = self._enable_pps_both(interface)
-            else:
-                print(f"Неизвестный режим PPS: {mode}")
-                return False
             
-            # Если успешно изменили PPS режим, обновляем информацию о NIC
+            print(f"Результат установки PPS: {success}")
+            
+            # Обновляем информацию о карте
             if success:
                 print(f"Обновление информации о NIC {interface} после изменения PPS")
                 self.refresh_nic_info(interface)
@@ -310,177 +332,231 @@ class IntelNICManager:
             return success
             
         except Exception as e:
-            print(f"Ошибка при установке PPS режима: {e}")
-            return False
+            print(f"Исключение при установке PPS режима: {e}")
+            import traceback
+            traceback.print_exc()
+        return False
     
     def _disable_pps(self, interface: str) -> bool:
-        """Отключение PPS"""
+        """Отключение PPS для интерфейса"""
+        print(f"Отключение PPS для {interface}")
+        
+        success = False
+        
+        # Метод 1: Через sysfs (если доступен)
         try:
-            success = True
+            sysfs_paths = [
+                f"/sys/class/net/{interface}/device/ptp/ptp*/pps_enable",
+                f"/sys/class/net/{interface}/device/ptp*/pps_enable"
+            ]
             
-            # Метод 1: Через sysfs
-            pps_input_path = f"/sys/class/net/{interface}/pps_input"
-            pps_output_path = f"/sys/class/net/{interface}/pps_output"
-            
-            if os.path.exists(pps_input_path):
-                try:
-                    with open(pps_input_path, 'w') as f:
-                        f.write("0")
-                    print(f"✓ PPS input отключен через sysfs для {interface}")
-                except Exception as e:
-                    print(f"✗ Ошибка отключения PPS input: {e}")
-                    success = False
-            
-            if os.path.exists(pps_output_path):
-                try:
-                    with open(pps_output_path, 'w') as f:
-                        f.write("0")
-                    print(f"✓ PPS output отключен через sysfs для {interface}")
-                except Exception as e:
-                    print(f"✗ Ошибка отключения PPS output: {e}")
-                    success = False
-            
-            # Метод 2: Через testptp
-            ptp_device = self._get_ptp_device_for_interface(interface)
-            if ptp_device:
-                try:
-                    # Шаг 1: Отключаем периодический выход
-                    print(f"Отключение периодического выхода для {interface}")
-                    result1 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-p", "0"], 
-                                          capture_output=True, text=True, timeout=10)
-                    
-                    # Шаг 2: Сбрасываем настройки SDP0 (отключаем выходной пин)
-                    print(f"Сброс настроек SDP0 для {interface}")
-                    result2 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L0,0"], 
-                                          capture_output=True, text=True, timeout=10)
-                    
-                    # Шаг 3: Отключаем внешние временные метки
-                    print(f"Отключение внешних временных меток для {interface}")
-                    result3 = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-e", "0"], 
-                                          capture_output=True, text=True, timeout=10)
-                    
-                    if result1.returncode == 0 and result2.returncode == 0 and result3.returncode == 0:
-                        print(f"✓ PPS отключен через testptp для {interface} ({ptp_device})")
+            for pattern in sysfs_paths:
+                import glob
+                for path in glob.glob(pattern):
+                    try:
+                        with open(path, 'w') as f:
+                            f.write('0')
+                        print(f"✓ PPS отключен через sysfs: {path}")
                         success = True
-                    else:
-                        print(f"✗ testptp ошибка отключения: {result1.stderr} {result2.stderr} {result3.stderr}")
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    print(f"✗ testptp исключение при отключении: {e}")
-            
-            # Метод 3: Через phc_ctl
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        
+        # Метод 2: Через testptp (основной метод)
+        ptp_device = self._get_ptp_device_for_interface(interface)
+        if ptp_device:
             try:
-                result1 = subprocess.run(["sudo", "phc_ctl", "-d", ptp_device, "-e", "0"], 
+                print(f"Отключение PPS через testptp для {interface} ({ptp_device})")
+                
+                # Шаг 1: Отключаем периодический выход (устанавливаем период в 0)
+                print(f"Отключение периодического выхода для {interface}")
+                result1 = subprocess.run(["sudo", "-n", "testptp", "-d", ptp_device, "-p", "0"], 
                                       capture_output=True, text=True, timeout=10)
-                result2 = subprocess.run(["sudo", "phc_ctl", "-d", ptp_device, "-i", "0"], 
+                print(f"Результат отключения периодического выхода: {result1.returncode}")
+                
+                # Шаг 2: Отключаем SDP0 (выходной пин) - устанавливаем func 0
+                print(f"Отключение SDP0 (выходной пин) для {interface}")
+                result2 = subprocess.run(["sudo", "-n", "testptp", "-d", ptp_device, "-L0,0"], 
+                                      capture_output=True, text=True, timeout=10)
+                print(f"Результат отключения SDP0: {result2.returncode}")
+                
+                # Шаг 3: Отключаем SDP1 (входной пин) - устанавливаем func 0
+                print(f"Отключение SDP1 (входной пин) для {interface}")
+                result3 = subprocess.run(["sudo", "-n", "testptp", "-d", ptp_device, "-L1,0"], 
+                                      capture_output=True, text=True, timeout=10)
+                print(f"Результат отключения SDP1: {result3.returncode}")
+                
+                # Шаг 4: Отключаем внешние временные метки
+                print(f"Отключение внешних временных меток для {interface}")
+                result4 = subprocess.run(["sudo", "-n", "testptp", "-d", ptp_device, "-e", "0"], 
+                                      capture_output=True, text=True, timeout=10)
+                print(f"Результат отключения внешних меток: {result4.returncode}")
+                
+                if result1.returncode == 0 and result2.returncode == 0 and result3.returncode == 0 and result4.returncode == 0:
+                    print(f"✓ PPS полностью отключен через testptp для {interface}")
+                    success = True
+                else:
+                    print(f"✗ Ошибки testptp при отключении:")
+                    print(f"  Периодический выход: {result1.stderr}")
+                    print(f"  SDP0: {result2.stderr}")
+                    print(f"  SDP1: {result3.stderr}")
+                    print(f"  Внешние метки: {result4.stderr}")
+                    
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ testptp исключение при отключении: {e}")
+        
+        # Метод 3: Через phc_ctl (резервный метод)
+        if ptp_device:
+                try:
+                print(f"Пробуем отключить через phc_ctl для {interface}")
+                result1 = subprocess.run(["sudo", "-n", "phc_ctl", "-d", ptp_device, "-e", "0"], 
+                                      capture_output=True, text=True, timeout=10)
+                result2 = subprocess.run(["sudo", "-n", "phc_ctl", "-d", ptp_device, "-p", "0"], 
                                       capture_output=True, text=True, timeout=10)
                 
                 if result1.returncode == 0 and result2.returncode == 0:
                     print(f"✓ PPS отключен через phc_ctl для {interface}")
                     success = True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-                
-            return success
+                else:
+                    print(f"✗ phc_ctl ошибки: {result1.stderr} {result2.stderr}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ phc_ctl исключение: {e}")
             
-        except Exception as e:
-            print(f"Ошибка при отключении PPS: {e}")
-            return False
+        return success
     
     def _enable_pps_input(self, interface: str) -> bool:
-        """Включение входного PPS"""
+        """Включение PPS input для интерфейса"""
+        print(f"Включение PPS input для {interface}")
+        
+                    success = False
+            
+        # Метод 1: Через sysfs (если доступен)
         try:
-            # Метод 1: Через sysfs
-            pps_input_path = f"/sys/class/net/{interface}/pps_input"
-            if os.path.exists(pps_input_path):
-                try:
-                    with open(pps_input_path, 'w') as f:
-                        f.write("1")
-                    print(f"✓ PPS input включен через sysfs для {interface}")
-                    return True
-                except Exception as e:
-                    print(f"✗ Ошибка sysfs PPS input: {e}")
+            sysfs_paths = [
+                f"/sys/class/net/{interface}/device/ptp/ptp*/pps_enable",
+                f"/sys/class/net/{interface}/device/ptp*/pps_enable"
+            ]
             
-            # Метод 2: Через testptp (основной метод)
-            ptp_device = self._get_ptp_device_for_interface(interface)
-            if ptp_device:
+            for pattern in sysfs_paths:
+                import glob
+                for path in glob.glob(pattern):
                 try:
-                    # Шаг 1: Назначаем SDP1 как входной пин (внешние временные метки)
-                    print(f"Настройка SDP1 как входной пин для {interface}")
-                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L1,1"], 
-                                         capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        print(f"✓ PPS input включен через testptp для {interface} ({ptp_device})")
-                        return True
-                    else:
-                        print(f"✗ testptp ошибка: {result.stderr}")
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    print(f"✗ testptp исключение: {e}")
-            
-            # Метод 3: Через phc_ctl (альтернативный метод)
+                        with open(path, 'w') as f:
+                            f.write('1')
+                        print(f"✓ PPS input включен через sysfs: {path}")
+                        success = True
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        
+        # Метод 2: Через testptp (основной метод)
+        ptp_device = self._get_ptp_device_for_interface(interface)
+        if ptp_device:
             try:
-                result = subprocess.run(["sudo", "phc_ctl", "-d", ptp_device, "-i", "1"], 
+                print(f"Включение PPS input через testptp для {interface} ({ptp_device})")
+                
+                # Шаг 1: Назначаем SDP1 как входной пин
+                print(f"Настройка SDP1 как входной пин для {interface}")
+                cmd1 = ["sudo", "-n", "testptp", "-d", ptp_device, "-L1,1"]
+                print(f"Выполняем команду: {' '.join(cmd1)}")
+                result1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=10)
+                print(f"Результат 1: returncode={result1.returncode}, stdout='{result1.stdout}', stderr='{result1.stderr}'")
+                
+                if result1.returncode == 0:
+                    print(f"✓ PPS input включен через testptp для {interface} ({ptp_device})")
+                    success = True
+                else:
+                    print(f"✗ testptp ошибка: {result1.stderr}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ testptp исключение: {e}")
+        
+        # Метод 3: Через phc_ctl (альтернативный метод)
+        if ptp_device:
+            try:
+                print("Пробуем phc_ctl...")
+                result = subprocess.run(["sudo", "-n", "phc_ctl", "-d", ptp_device, "-i", "1"], 
                                      capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     print(f"✓ PPS input включен через phc_ctl для {interface}")
-                    return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+                    success = True
+                else:
+                    print(f"✗ phc_ctl ошибка: {result.stderr}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ phc_ctl исключение: {e}")
                 
-        except Exception as e:
-            print(f"Ошибка при включении PPS input: {e}")
-        return False
-    
+            return success
+            
     def _enable_pps_output(self, interface: str) -> bool:
-        """Включение выходного PPS"""
+        """Включение PPS output для интерфейса"""
+        print(f"Включение PPS output для {interface}")
+        
+        success = False
+        
+        # Метод 1: Через sysfs (если доступен)
         try:
-            # Метод 1: Через sysfs
-            pps_output_path = f"/sys/class/net/{interface}/pps_output"
-            if os.path.exists(pps_output_path):
-                try:
-                    with open(pps_output_path, 'w') as f:
-                        f.write("1")
-                    print(f"✓ PPS output включен через sysfs для {interface}")
-                    return True
-                except Exception as e:
-                    print(f"✗ Ошибка sysfs PPS output: {e}")
+            sysfs_paths = [
+                f"/sys/class/net/{interface}/device/ptp/ptp*/pps_enable",
+                f"/sys/class/net/{interface}/device/ptp*/pps_enable"
+            ]
             
-            # Метод 2: Через testptp (основной метод)
-            ptp_device = self._get_ptp_device_for_interface(interface)
-            if ptp_device:
-                try:
-                    # Шаг 1: Назначаем SDP0 как выходной пин (периодический выход)
-                    print(f"Настройка SDP0 как выходной пин для {interface}")
-                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-L0,2"], 
-                                         capture_output=True, text=True, timeout=10)
-                    if result.returncode != 0:
-                        print(f"✗ Ошибка настройки SDP0: {result.stderr}")
-                        return False
-                    
-                    # Шаг 2: Устанавливаем период = 1 Гц (1 секунда)
-                    print(f"Установка периода PPS для {interface}")
-                    result = subprocess.run(["sudo", "testptp", "-d", ptp_device, "-p", "1000000000"], 
-                                         capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        print(f"✓ PPS output включен через testptp для {interface} ({ptp_device})")
-                        return True
-                    else:
-                        print(f"✗ testptp ошибка: {result.stderr}")
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    print(f"✗ testptp исключение: {e}")
-            
-            # Метод 3: Через phc_ctl (альтернативный метод)
+            for pattern in sysfs_paths:
+                import glob
+                for path in glob.glob(pattern):
+                    try:
+                        with open(path, 'w') as f:
+                            f.write('1')
+                        print(f"✓ PPS output включен через sysfs: {path}")
+                        success = True
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        
+        # Метод 2: Через testptp (основной метод)
+        ptp_device = self._get_ptp_device_for_interface(interface)
+        if ptp_device:
             try:
-                result = subprocess.run(["sudo", "phc_ctl", "-d", ptp_device, "-e", "1"], 
+                print(f"Включение PPS output через testptp для {interface} ({ptp_device})")
+                
+                # Шаг 1: Назначаем SDP0 как выходной пин (периодический выход)
+                print(f"Настройка SDP0 как выходной пин для {interface}")
+                cmd1 = ["sudo", "-n", "testptp", "-d", ptp_device, "-L0,2"]
+                print(f"Выполняем команду: {' '.join(cmd1)}")
+                result1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=10)
+                print(f"Результат 1: returncode={result1.returncode}, stdout='{result1.stdout}', stderr='{result1.stderr}'")
+                
+                # Шаг 2: Устанавливаем период = 1 Гц (1 секунда)
+                print(f"Установка периода 1 Гц для {interface}")
+                cmd2 = ["sudo", "-n", "testptp", "-d", ptp_device, "-p", "1000000000"]
+                print(f"Выполняем команду: {' '.join(cmd2)}")
+                result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=10)
+                print(f"Результат 2: returncode={result2.returncode}, stdout='{result2.stdout}', stderr='{result2.stderr}'")
+                
+                if result1.returncode == 0 and result2.returncode == 0:
+                    print(f"✓ PPS output включен через testptp для {interface} ({ptp_device})")
+                    success = True
+                else:
+                    print(f"✗ testptp ошибка: {result1.stderr} {result2.stderr}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ testptp исключение: {e}")
+        
+        # Метод 3: Через phc_ctl (альтернативный метод)
+        if ptp_device:
+            try:
+                print("Пробуем phc_ctl...")
+                result = subprocess.run(["sudo", "-n", "phc_ctl", "-d", ptp_device, "-e", "1"], 
                                      capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     print(f"✓ PPS output включен через phc_ctl для {interface}")
-                    return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+                    success = True
+                else:
+                    print(f"✗ phc_ctl ошибка: {result.stderr}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"✗ phc_ctl исключение: {e}")
                 
-        except Exception as e:
-            print(f"Ошибка при включении PPS output: {e}")
-        return False
+        return success
     
     def _get_ptp_device_for_interface(self, interface: str) -> Optional[str]:
         """Получение PTP устройства для интерфейса"""
@@ -495,9 +571,9 @@ class IntelNICManager:
                         ptp_device = f"/dev/ptp{clock_num}"
                         if os.path.exists(ptp_device):
                             return ptp_device
-        except Exception:
-            pass
-        
+                except Exception:
+                    pass
+            
         # Резервный метод: ищем все PTP устройства
         ptp_devices = self._find_ptp_devices(interface)
         if ptp_devices:
@@ -520,7 +596,7 @@ class IntelNICManager:
                     ptp_path = f"/dev/ptp{ptp_dir}"
                     if os.path.exists(ptp_path):
                         ptp_devices.append(ptp_path)
-                        
+                
         except Exception:
             pass
         
@@ -554,7 +630,7 @@ class IntelNICManager:
                 if result.returncode == 0 and "PPS" in result.stdout:
                     capabilities['ethtool'] = True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+                    pass
             
             # Проверяем testptp
             try:
