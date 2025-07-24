@@ -591,11 +591,18 @@ class MonitoringWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # График трафика
-        traffic_group = QGroupBox("Трафик")
+        traffic_group = QGroupBox("Общий трафик")
         self.traffic_canvas = self.create_traffic_chart()
         traffic_group.setLayout(QVBoxLayout())
         traffic_group.layout().addWidget(self.traffic_canvas)
         splitter.addWidget(traffic_group)
+        
+        # График PTP трафика
+        ptp_traffic_group = QGroupBox("PTP трафик")
+        self.ptp_traffic_canvas = self.create_ptp_traffic_chart()
+        ptp_traffic_group.setLayout(QVBoxLayout())
+        ptp_traffic_group.layout().addWidget(self.ptp_traffic_canvas)
+        splitter.addWidget(ptp_traffic_group)
         
         # График температуры
         temp_group = QGroupBox("Температура")
@@ -698,6 +705,17 @@ class MonitoringWidget(QWidget):
         self.timenic_temp_data = {'temp': [], 'time': []}
         return canvas
     
+    def create_ptp_traffic_chart(self):
+        """Создание графика PTP трафика"""
+        fig = Figure(figsize=(6, 4))
+        canvas = FigureCanvas(fig)
+        self.ptp_traffic_ax = fig.add_subplot(111)
+        self.ptp_traffic_ax.set_title("PTP трафик (пакеты/с)")
+        self.ptp_traffic_ax.set_xlabel("Время")
+        self.ptp_traffic_ax.set_ylabel("Пакеты/с")
+        self.ptp_traffic_data = {'rx': [], 'tx': [], 'sync': [], 'time': []}
+        return canvas
+    
     def update_monitor_nic_list(self):
         """Обновление списка NIC карт для мониторинга"""
         self.monitor_nic_combo.clear()
@@ -765,6 +783,25 @@ class MonitoringWidget(QWidget):
                 self.traffic_data['rx'].append(rx_speed)
                 self.traffic_data['tx'].append(tx_speed)
                 self.traffic_data['time'].append(current_time)
+            
+            # Обновляем данные PTP трафика
+            if 'ptp_rx_packets' in stats and 'ptp_tx_packets' in stats:
+                if self.ptp_traffic_data['time']:
+                    # Вычисляем скорость PTP пакетов
+                    prev_ptp_rx = self.ptp_traffic_data['rx'][-1] if self.ptp_traffic_data['rx'] else 0
+                    prev_ptp_tx = self.ptp_traffic_data['tx'][-1] if self.ptp_traffic_data['tx'] else 0
+                    prev_ptp_sync = self.ptp_traffic_data['sync'][-1] if self.ptp_traffic_data['sync'] else 0
+                    
+                    ptp_rx_speed = stats['ptp_rx_packets'] - prev_ptp_rx
+                    ptp_tx_speed = stats['ptp_tx_packets'] - prev_ptp_tx
+                    ptp_sync_speed = stats.get('ptp_sync_packets', 0) - prev_ptp_sync
+                else:
+                    ptp_rx_speed = ptp_tx_speed = ptp_sync_speed = 0
+                
+                self.ptp_traffic_data['rx'].append(ptp_rx_speed)
+                self.ptp_traffic_data['tx'].append(ptp_tx_speed)
+                self.ptp_traffic_data['sync'].append(ptp_sync_speed)
+                self.ptp_traffic_data['time'].append(current_time)
         
         # Обновляем данные температуры
         if 'temperature' in data and data['temperature']:
@@ -777,6 +814,12 @@ class MonitoringWidget(QWidget):
             self.traffic_data['rx'] = self.traffic_data['rx'][-max_points:]
             self.traffic_data['tx'] = self.traffic_data['tx'][-max_points:]
             self.traffic_data['time'] = self.traffic_data['time'][-max_points:]
+        
+        if len(self.ptp_traffic_data['time']) > max_points:
+            self.ptp_traffic_data['rx'] = self.ptp_traffic_data['rx'][-max_points:]
+            self.ptp_traffic_data['tx'] = self.ptp_traffic_data['tx'][-max_points:]
+            self.ptp_traffic_data['sync'] = self.ptp_traffic_data['sync'][-max_points:]
+            self.ptp_traffic_data['time'] = self.ptp_traffic_data['time'][-max_points:]
         
         if len(self.temp_data['time']) > max_points:
             self.temp_data['temp'] = self.temp_data['temp'][-max_points:]
@@ -799,7 +842,34 @@ class MonitoringWidget(QWidget):
             self.temp_ax.set_xlabel("Время")
             self.temp_ax.set_ylabel("°C")
         
+        # Обновляем PTP график
+        self.ptp_traffic_ax.clear()
+        has_data = False
+        
+        if self.ptp_traffic_data['time']:
+            if any(self.ptp_traffic_data['rx']):
+                self.ptp_traffic_ax.plot(self.ptp_traffic_data['time'], self.ptp_traffic_data['rx'], label='PTP RX', color='green')
+                has_data = True
+            if any(self.ptp_traffic_data['tx']):
+                self.ptp_traffic_ax.plot(self.ptp_traffic_data['time'], self.ptp_traffic_data['tx'], label='PTP TX', color='purple')
+                has_data = True
+            if any(self.ptp_traffic_data['sync']):
+                self.ptp_traffic_ax.plot(self.ptp_traffic_data['time'], self.ptp_traffic_data['sync'], label='PTP Sync', color='red')
+                has_data = True
+            
+            if has_data:
+                self.ptp_traffic_ax.legend()
+            
+            self.ptp_traffic_ax.set_title("PTP трафик (пакеты/с)")
+            self.ptp_traffic_ax.set_xlabel("Время")
+            self.ptp_traffic_ax.set_ylabel("Пакеты/с")
+        else:
+            self.ptp_traffic_ax.text(0.5, 0.5, 'PTP трафик не обнаружен', 
+                                    ha='center', va='center', transform=self.ptp_traffic_ax.transAxes)
+            self.ptp_traffic_ax.set_title("PTP трафик (пакеты/с)")
+        
         self.traffic_canvas.draw()
+        self.ptp_traffic_canvas.draw()
         self.temp_canvas.draw()
     
     def update_timenic_charts(self):
@@ -877,18 +947,43 @@ class MonitoringWidget(QWidget):
         
         if 'stats' in data:
             stats = data['stats']
+            
+            # Основная статистика
+            stats_text += f"=== Основная статистика ===\n"
             stats_text += f"Принято пакетов: {stats.get('rx_packets', 0):,}\n"
             stats_text += f"Отправлено пакетов: {stats.get('tx_packets', 0):,}\n"
+            stats_text += f"Принято байт: {stats.get('rx_bytes', 0):,}\n"
+            stats_text += f"Отправлено байт: {stats.get('tx_bytes', 0):,}\n"
             stats_text += f"Ошибки приема: {stats.get('rx_errors', 0):,}\n"
             stats_text += f"Ошибки отправки: {stats.get('tx_errors', 0):,}\n"
             stats_text += f"Отброшено при приеме: {stats.get('rx_dropped', 0):,}\n"
             stats_text += f"Отброшено при отправке: {stats.get('tx_dropped', 0):,}\n"
+            
+            # PTP статистика
+            ptp_rx_packets = stats.get('ptp_rx_packets', 0)
+            ptp_tx_packets = stats.get('ptp_tx_packets', 0)
+            ptp_sync_packets = stats.get('ptp_sync_packets', 0)
+            ptp_delay_req_packets = stats.get('ptp_delay_req_packets', 0)
+            ptp_follow_up_packets = stats.get('ptp_follow_up_packets', 0)
+            ptp_delay_resp_packets = stats.get('ptp_delay_resp_packets', 0)
+            
+            if ptp_rx_packets > 0 or ptp_tx_packets > 0:
+                stats_text += f"\n=== PTP статистика ===\n"
+                stats_text += f"PTP RX пакетов: {ptp_rx_packets:,}\n"
+                stats_text += f"PTP TX пакетов: {ptp_tx_packets:,}\n"
+                stats_text += f"Sync пакетов: {ptp_sync_packets:,}\n"
+                stats_text += f"Delay Request пакетов: {ptp_delay_req_packets:,}\n"
+                stats_text += f"Follow Up пакетов: {ptp_follow_up_packets:,}\n"
+                stats_text += f"Delay Response пакетов: {ptp_delay_resp_packets:,}\n"
+            else:
+                stats_text += f"\n=== PTP статистика ===\n"
+                stats_text += f"PTP трафик не обнаружен\n"
         
         if 'temperature' in data and data['temperature']:
-            stats_text += f"Температура: {data['temperature']:.1f}°C\n"
+            stats_text += f"\nТемпература: {data['temperature']:.1f}°C\n"
         
         if 'status' in data:
-            stats_text += f"Статус: {data['status']}"
+            stats_text += f"\nСтатус: {data['status']}"
         
         self.stats_text.setText(stats_text)
     
