@@ -43,10 +43,8 @@ class MonitoringThread(QThread):
                 data = {}
                 for nic in self.nic_manager.get_all_nics():
                     stats = self.nic_manager.get_statistics(nic.name)
-                    temp = self.nic_manager.get_temperature(nic.name)
                     data[nic.name] = {
                         'stats': stats,
-                        'temperature': temp,
                         'status': nic.status
                     }
                 self.data_updated.emit(data)
@@ -58,7 +56,6 @@ class MonitoringThread(QThread):
                         stats = self.timenic_manager.get_statistics(timenic.name)
                         timenic_data[timenic.name] = {
                             'stats': stats,
-                            'temperature': timenic.temperature,
                             'status': timenic.status,
                             'pps_mode': timenic.pps_mode.value,
                             'tcxo_enabled': timenic.tcxo_enabled,
@@ -89,7 +86,7 @@ class NICTableWidget(QTableWidget):
         """Настройка интерфейса таблицы"""
         headers = [
             "Имя", "MAC адрес", "IP адрес", "Статус", 
-            "Скорость", "Дуплекс", "PPS режим", "TCXO", "Температура"
+            "Скорость", "Дуплекс", "PPS режим", "TCXO"
         ]
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
@@ -131,9 +128,7 @@ class NICTableWidget(QTableWidget):
                 tcxo_item.setBackground(QColor(255, 182, 193))  # Светло-красный
             self.setItem(row, 7, tcxo_item)
             
-            # Температура
-            temp_text = f"{nic.temperature:.1f}°C" if nic.temperature else "N/A"
-            self.setItem(row, 8, QTableWidgetItem(temp_text))
+
         
         self.resizeColumnsToContents()
 
@@ -149,7 +144,7 @@ class TimeNICTableWidget(QTableWidget):
         """Настройка интерфейса таблицы"""
         headers = [
             "Имя", "MAC адрес", "IP адрес", "Статус", 
-            "PPS режим", "TCXO", "PTM", "SMA1", "SMA2", "PHC Offset", "Температура"
+            "PPS режим", "TCXO", "PTM", "SMA1", "SMA2", "PHC Offset"
         ]
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
@@ -218,9 +213,7 @@ class TimeNICTableWidget(QTableWidget):
             phc_offset_text = str(timenic.phc_offset) if timenic.phc_offset else "N/A"
             self.setItem(row, 9, QTableWidgetItem(phc_offset_text))
             
-            # Температура
-            temp_text = f"{timenic.temperature:.1f}°C" if timenic.temperature else "N/A"
-            self.setItem(row, 10, QTableWidgetItem(temp_text))
+
         
         self.resizeColumnsToContents()
 
@@ -281,6 +274,51 @@ class ConfigurationWidget(QWidget):
         tcxo_group.setLayout(tcxo_layout)
         layout.addWidget(tcxo_group)
         
+        # Синхронизация PHC
+        sync_group = QGroupBox("Синхронизация PHC")
+        sync_layout = QGridLayout()
+        
+        # PHC2SYS синхронизация
+        sync_layout.addWidget(QLabel("Источник PHC:"), 0, 0)
+        self.source_ptp_combo = QComboBox()
+        self.source_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
+        sync_layout.addWidget(self.source_ptp_combo, 0, 1)
+        
+        sync_layout.addWidget(QLabel("Цель PHC:"), 1, 0)
+        self.target_ptp_combo = QComboBox()
+        self.target_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
+        self.target_ptp_combo.setCurrentText("/dev/ptp0")
+        sync_layout.addWidget(self.target_ptp_combo, 1, 1)
+        
+        self.start_phc_btn = QPushButton("Запустить PHC2SYS")
+        self.start_phc_btn.clicked.connect(self.start_phc_sync)
+        sync_layout.addWidget(self.start_phc_btn, 0, 2)
+        
+        self.stop_phc_btn = QPushButton("Остановить PHC2SYS")
+        self.stop_phc_btn.clicked.connect(self.stop_phc_sync)
+        sync_layout.addWidget(self.stop_phc_btn, 1, 2)
+        
+        # TS2PHC синхронизация
+        sync_layout.addWidget(QLabel("TS2PHC устройство:"), 2, 0)
+        self.ts2phc_ptp_combo = QComboBox()
+        self.ts2phc_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
+        sync_layout.addWidget(self.ts2phc_ptp_combo, 2, 1)
+        
+        self.start_ts2phc_btn = QPushButton("Запустить TS2PHC")
+        self.start_ts2phc_btn.clicked.connect(self.start_ts2phc_sync)
+        sync_layout.addWidget(self.start_ts2phc_btn, 2, 2)
+        
+        self.stop_ts2phc_btn = QPushButton("Остановить TS2PHC")
+        self.stop_ts2phc_btn.clicked.connect(self.stop_ts2phc_sync)
+        sync_layout.addWidget(self.stop_ts2phc_btn, 3, 2)
+        
+        # Статус синхронизации
+        self.sync_status_label = QLabel("Статус: Не синхронизировано")
+        sync_layout.addWidget(self.sync_status_label, 4, 0, 1, 3)
+        
+        sync_group.setLayout(sync_layout)
+        layout.addWidget(sync_group)
+        
         # Информация о выбранной карте
         info_group = QGroupBox("Информация о карте")
         self.info_text = QTextEdit()
@@ -324,9 +362,11 @@ IP адрес: {nic.ip_address}
 Дуплекс: {nic.duplex}
 PPS режим: {nic.pps_mode.value}
 TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
-Температура: {f'{nic.temperature:.1f}°C' if nic.temperature else 'N/A'}
             """
             self.info_text.setText(info_text.strip())
+            
+            # Обновляем статус синхронизации
+            self.update_sync_status()
     
     def apply_pps_settings(self):
         """Применение настроек PPS"""
@@ -371,6 +411,74 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
                 self.parent().parent().refresh_data()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось изменить настройки TCXO")
+    
+    def start_phc_sync(self):
+        """Запуск PHC2SYS синхронизации"""
+        source_ptp = self.source_ptp_combo.currentText()
+        target_ptp = self.target_ptp_combo.currentText()
+        
+        if source_ptp == target_ptp:
+            QMessageBox.warning(self, "Ошибка", "Источник и цель не могут быть одинаковыми")
+            return
+        
+        success = self.nic_manager.start_phc_sync(source_ptp, target_ptp)
+        
+        if success:
+            QMessageBox.information(self, "Успех", f"PHC2SYS синхронизация запущена: {source_ptp} -> {target_ptp}")
+            self.update_sync_status()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось запустить PHC2SYS синхронизацию")
+    
+    def stop_phc_sync(self):
+        """Остановка PHC2SYS синхронизации"""
+        success = self.nic_manager.stop_phc_sync()
+        
+        if success:
+            QMessageBox.information(self, "Успех", "PHC2SYS синхронизация остановлена")
+            self.update_sync_status()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось остановить PHC2SYS синхронизацию")
+    
+    def start_ts2phc_sync(self):
+        """Запуск TS2PHC синхронизации"""
+        nic_name = self.nic_combo.currentText()
+        if not nic_name:
+            QMessageBox.warning(self, "Ошибка", "Выберите NIC карту")
+            return
+        
+        ptp_device = self.ts2phc_ptp_combo.currentText()
+        
+        success = self.nic_manager.start_ts2phc_sync(nic_name, ptp_device)
+        
+        if success:
+            QMessageBox.information(self, "Успех", f"TS2PHC синхронизация запущена для {nic_name}")
+            self.update_sync_status()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось запустить TS2PHC синхронизацию")
+    
+    def stop_ts2phc_sync(self):
+        """Остановка TS2PHC синхронизации"""
+        success = self.nic_manager.stop_ts2phc_sync()
+        
+        if success:
+            QMessageBox.information(self, "Успех", "TS2PHC синхронизация остановлена")
+            self.update_sync_status()
+        else:
+            QMessageBox.critical(self, "Ошибка", "Не удалось остановить TS2PHC синхронизацию")
+    
+    def update_sync_status(self):
+        """Обновление статуса синхронизации"""
+        status = self.nic_manager.get_sync_status()
+        
+        status_text = "Статус: "
+        if status['phc2sys_running']:
+            status_text += f"PHC2SYS запущен (PID: {status['phc2sys_pid']}) "
+        if status['ts2phc_running']:
+            status_text += f"TS2PHC запущен (PID: {status['ts2phc_pid']}) "
+        if not status['phc2sys_running'] and not status['ts2phc_running']:
+            status_text += "Не синхронизировано"
+        
+        self.sync_status_label.setText(status_text)
 
 
 class TimeNICConfigurationWidget(QWidget):
@@ -622,12 +730,7 @@ class MonitoringWidget(QWidget):
         ptp_traffic_group.layout().addWidget(self.ptp_traffic_canvas)
         splitter.addWidget(ptp_traffic_group)
         
-        # График температуры
-        temp_group = QGroupBox("Температура")
-        self.temp_canvas = self.create_temperature_chart()
-        temp_group.setLayout(QVBoxLayout())
-        temp_group.layout().addWidget(self.temp_canvas)
-        splitter.addWidget(temp_group)
+        
         
         layout.addWidget(splitter)
         
@@ -642,12 +745,7 @@ class MonitoringWidget(QWidget):
             timenic_traffic_group.layout().addWidget(self.timenic_traffic_canvas)
             timenic_splitter.addWidget(timenic_traffic_group)
             
-            # График температуры TimeNIC
-            timenic_temp_group = QGroupBox("Температура TimeNIC")
-            self.timenic_temp_canvas = self.create_timenic_temperature_chart()
-            timenic_temp_group.setLayout(QVBoxLayout())
-            timenic_temp_group.layout().addWidget(self.timenic_temp_canvas)
-            timenic_splitter.addWidget(timenic_temp_group)
+
             
             layout.addWidget(timenic_splitter)
         
@@ -690,16 +788,7 @@ class MonitoringWidget(QWidget):
         self.traffic_data = {'rx': [], 'tx': [], 'time': []}
         return canvas
     
-    def create_temperature_chart(self):
-        """Создание графика температуры"""
-        fig = Figure(figsize=(6, 4))
-        canvas = FigureCanvas(fig)
-        self.temp_ax = fig.add_subplot(111)
-        self.temp_ax.set_title("Температура (°C)")
-        self.temp_ax.set_xlabel("Время")
-        self.temp_ax.set_ylabel("°C")
-        self.temp_data = {'temp': [], 'time': []}
-        return canvas
+
     
     def create_timenic_traffic_chart(self):
         """Создание графика трафика для TimeNIC"""
@@ -712,16 +801,7 @@ class MonitoringWidget(QWidget):
         self.timenic_traffic_data = {'rx': [], 'tx': [], 'time': []}
         return canvas
     
-    def create_timenic_temperature_chart(self):
-        """Создание графика температуры для TimeNIC"""
-        fig = Figure(figsize=(6, 4))
-        canvas = FigureCanvas(fig)
-        self.timenic_temp_ax = fig.add_subplot(111)
-        self.timenic_temp_ax.set_title("Температура (°C)")
-        self.timenic_temp_ax.set_xlabel("Время")
-        self.timenic_temp_ax.set_ylabel("°C")
-        self.timenic_temp_data = {'temp': [], 'time': []}
-        return canvas
+
     
     def create_ptp_traffic_chart(self):
         """Создание графика PTP трафика"""
@@ -821,10 +901,7 @@ class MonitoringWidget(QWidget):
                 self.ptp_traffic_data['sync'].append(ptp_sync_speed)
                 self.ptp_traffic_data['time'].append(current_time)
         
-        # Обновляем данные температуры
-        if 'temperature' in data and data['temperature']:
-            self.temp_data['temp'].append(data['temperature'])
-            self.temp_data['time'].append(current_time)
+
         
         # Ограничиваем количество точек на графике
         max_points = 60
@@ -839,9 +916,7 @@ class MonitoringWidget(QWidget):
             self.ptp_traffic_data['sync'] = self.ptp_traffic_data['sync'][-max_points:]
             self.ptp_traffic_data['time'] = self.ptp_traffic_data['time'][-max_points:]
         
-        if len(self.temp_data['time']) > max_points:
-            self.temp_data['temp'] = self.temp_data['temp'][-max_points:]
-            self.temp_data['time'] = self.temp_data['time'][-max_points:]
+
         
         # Обновляем графики
         self.traffic_ax.clear()
@@ -853,12 +928,7 @@ class MonitoringWidget(QWidget):
             self.traffic_ax.set_xlabel("Время")
             self.traffic_ax.set_ylabel("Байт/с")
         
-        self.temp_ax.clear()
-        if self.temp_data['time']:
-            self.temp_ax.plot(self.temp_data['time'], self.temp_data['temp'], color='orange')
-            self.temp_ax.set_title("Температура (°C)")
-            self.temp_ax.set_xlabel("Время")
-            self.temp_ax.set_ylabel("°C")
+
         
         # Обновляем PTP график
         self.ptp_traffic_ax.clear()
@@ -888,7 +958,6 @@ class MonitoringWidget(QWidget):
         
         self.traffic_canvas.draw()
         self.ptp_traffic_canvas.draw()
-        self.temp_canvas.draw()
     
     def update_timenic_charts(self):
         """Обновление графиков TimeNIC"""
@@ -930,9 +999,7 @@ class MonitoringWidget(QWidget):
             self.timenic_traffic_data['tx'] = self.timenic_traffic_data['tx'][-max_points:]
             self.timenic_traffic_data['time'] = self.timenic_traffic_data['time'][-max_points:]
         
-        if len(self.timenic_temp_data['time']) > max_points:
-            self.timenic_temp_data['temp'] = self.timenic_temp_data['temp'][-max_points:]
-            self.timenic_temp_data['time'] = self.timenic_temp_data['time'][-max_points:]
+
         
         # Обновляем графики
         self.timenic_traffic_ax.clear()
@@ -944,15 +1011,9 @@ class MonitoringWidget(QWidget):
             self.timenic_traffic_ax.set_xlabel("Время")
             self.timenic_traffic_ax.set_ylabel("Байт/с")
         
-        self.timenic_temp_ax.clear()
-        if self.timenic_temp_data['time']:
-            self.timenic_temp_ax.plot(self.timenic_temp_data['time'], self.timenic_temp_data['temp'], color='orange')
-            self.timenic_temp_ax.set_title("Температура (°C)")
-            self.timenic_temp_ax.set_xlabel("Время")
-            self.timenic_temp_ax.set_ylabel("°C")
+
         
         self.timenic_traffic_canvas.draw()
-        self.timenic_temp_canvas.draw()
     
     def update_stats(self):
         """Обновление статистики"""
@@ -997,8 +1058,7 @@ class MonitoringWidget(QWidget):
                 stats_text += f"\n=== PTP статистика ===\n"
                 stats_text += f"PTP трафик не обнаружен\n"
         
-        if 'temperature' in data and data['temperature']:
-            stats_text += f"\nТемпература: {data['temperature']:.1f}°C\n"
+
         
         if 'status' in data:
             stats_text += f"\nСтатус: {data['status']}"

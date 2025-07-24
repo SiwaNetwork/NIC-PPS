@@ -746,3 +746,151 @@ class IntelNICManager:
             print(f"Ошибка при получении PTP статистики: {e}")
         
         return ptp_stats
+    
+    def start_phc_sync(self, source_ptp: str, target_ptp: str) -> bool:
+        """Запуск синхронизации между PHC часами"""
+        try:
+            print(f"Запуск синхронизации PHC: {source_ptp} -> {target_ptp}")
+            
+            # Команда для взаимной синхронизации
+            cmd = [
+                "sudo", "phc2sys", 
+                "-s", source_ptp,  # источник
+                "-c", target_ptp,  # цель
+                "-O", "0",         # смещение 0
+                "-R", "16",        # частота обновления 16 Гц
+                "-m"               # вывод в консоль
+            ]
+            
+            print(f"Выполняем команду: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                print(f"✅ Синхронизация PHC запущена успешно")
+                print(f"Вывод: {result.stdout}")
+                return True
+            else:
+                print(f"❌ Ошибка запуска синхронизации PHC: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print(f"❌ Таймаут при запуске синхронизации PHC")
+            return False
+        except Exception as e:
+            print(f"❌ Исключение при запуске синхронизации PHC: {e}")
+            return False
+    
+    def stop_phc_sync(self) -> bool:
+        """Остановка синхронизации PHC"""
+        try:
+            print("Остановка синхронизации PHC...")
+            
+            # Ищем и убиваем процессы phc2sys
+            cmd = ["sudo", "pkill", "-f", "phc2sys"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print("✅ Синхронизация PHC остановлена")
+                return True
+            else:
+                print(f"❌ Ошибка остановки синхронизации PHC: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Исключение при остановке синхронизации PHC: {e}")
+            return False
+    
+    def start_ts2phc_sync(self, interface: str, ptp_device: str) -> bool:
+        """Запуск синхронизации PHC по внешнему PPS"""
+        try:
+            print(f"Запуск ts2phc синхронизации для {interface}")
+            
+            # Этап 1: Проброс системного времени в PHC
+            print(f"Этап 1: Проброс системного времени в PHC для {interface}")
+            phc_ctl_cmd = ["sudo", "phc_ctl", interface, "set;", "adj", "37"]
+            
+            phc_result = subprocess.run(phc_ctl_cmd, capture_output=True, text=True, timeout=10)
+            if phc_result.returncode == 0:
+                print(f"✅ Системное время проброшено в PHC")
+            else:
+                print(f"⚠️ Предупреждение при пробросе времени: {phc_result.stderr}")
+            
+            # Этап 2: Запуск ts2phc для коррекции по внешнему PPS
+            print(f"Этап 2: Запуск ts2phc для коррекции PHC по внешнему PPS")
+            ts2phc_cmd = [
+                "sudo", "ts2phc",
+                "-c", ptp_device,           # коррекция времени на этом устройстве
+                "-s", "generic",             # источник generic
+                "--ts2phc.pin_index", "1",   # слушаем PPS на SDP1
+                "-m",                        # вывод логов в консоль
+                "-l", "7"                    # уровень детализации логов
+            ]
+            
+            print(f"Выполняем команду: {' '.join(ts2phc_cmd)}")
+            result = subprocess.run(ts2phc_cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                print(f"✅ ts2phc синхронизация запущена успешно")
+                print(f"Вывод: {result.stdout}")
+                return True
+            else:
+                print(f"❌ Ошибка запуска ts2phc: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print(f"❌ Таймаут при запуске ts2phc синхронизации")
+            return False
+        except Exception as e:
+            print(f"❌ Исключение при запуске ts2phc синхронизации: {e}")
+            return False
+    
+    def stop_ts2phc_sync(self) -> bool:
+        """Остановка ts2phc синхронизации"""
+        try:
+            print("Остановка ts2phc синхронизации...")
+            
+            # Ищем и убиваем процессы ts2phc
+            cmd = ["sudo", "pkill", "-f", "ts2phc"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print("✅ ts2phc синхронизация остановлена")
+                return True
+            else:
+                print(f"❌ Ошибка остановки ts2phc: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Исключение при остановке ts2phc: {e}")
+            return False
+    
+    def get_sync_status(self) -> Dict:
+        """Получение статуса синхронизации"""
+        try:
+            status = {
+                'phc2sys_running': False,
+                'ts2phc_running': False,
+                'phc2sys_pid': None,
+                'ts2phc_pid': None
+            }
+            
+            # Проверяем процессы phc2sys
+            phc2sys_result = subprocess.run(["pgrep", "-f", "phc2sys"], 
+                                          capture_output=True, text=True, timeout=5)
+            if phc2sys_result.returncode == 0:
+                status['phc2sys_running'] = True
+                status['phc2sys_pid'] = phc2sys_result.stdout.strip()
+            
+            # Проверяем процессы ts2phc
+            ts2phc_result = subprocess.run(["pgrep", "-f", "ts2phc"], 
+                                         capture_output=True, text=True, timeout=5)
+            if ts2phc_result.returncode == 0:
+                status['ts2phc_running'] = True
+                status['ts2phc_pid'] = ts2phc_result.stdout.strip()
+            
+            return status
+            
+        except Exception as e:
+            print(f"Ошибка при получении статуса синхронизации: {e}")
+            return {'phc2sys_running': False, 'ts2phc_running': False, 
+                   'phc2sys_pid': None, 'ts2phc_pid': None}
