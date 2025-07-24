@@ -344,6 +344,9 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
             self.update_nic_list()
             # Обновляем отображение выбранной карты
             self.on_nic_selected(nic_name)
+            # Сигнализируем главному окну об обновлении таблиц
+            if hasattr(self.parent(), 'parent') and hasattr(self.parent().parent(), 'refresh_data'):
+                self.parent().parent().refresh_data()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось изменить PPS режим")
     
@@ -363,6 +366,9 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
             self.update_nic_list()
             # Обновляем отображение выбранной карты
             self.on_nic_selected(nic_name)
+            # Сигнализируем главному окну об обновлении таблиц
+            if hasattr(self.parent(), 'parent') and hasattr(self.parent().parent(), 'refresh_data'):
+                self.parent().parent().refresh_data()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось изменить настройки TCXO")
 

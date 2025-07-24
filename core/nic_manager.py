@@ -257,6 +257,21 @@ class IntelNICManager:
                 return nic
         return None
     
+    def refresh_nic_info(self, interface: str) -> Optional[NICInfo]:
+        """Обновление информации о NIC"""
+        try:
+            # Получаем свежую информацию о NIC
+            nic_info = self._get_nic_info(interface)
+            if nic_info:
+                # Обновляем информацию в списке
+                for i, nic in enumerate(self.nic_list):
+                    if nic.name == interface:
+                        self.nic_list[i] = nic_info
+                        return nic_info
+        except Exception as e:
+            print(f"Ошибка при обновлении информации о NIC {interface}: {e}")
+        return None
+    
     def set_pps_mode(self, interface: str, mode: PPSMode) -> bool:
         """Установка режима PPS"""
         try:
@@ -266,25 +281,33 @@ class IntelNICManager:
             capabilities = self.check_pps_capabilities(interface)
             print(f"PPS возможности для {interface}: {capabilities}")
             
+            success = False
             if mode == PPSMode.DISABLED:
                 # Отключаем PPS
                 print(f"Отключение PPS для {interface}")
-                return self._disable_pps(interface)
+                success = self._disable_pps(interface)
             elif mode == PPSMode.INPUT:
                 # Включаем только входной PPS
                 print(f"Включение PPS input для {interface}")
-                return self._enable_pps_input(interface)
+                success = self._enable_pps_input(interface)
             elif mode == PPSMode.OUTPUT:
                 # Включаем только выходной PPS
                 print(f"Включение PPS output для {interface}")
-                return self._enable_pps_output(interface)
+                success = self._enable_pps_output(interface)
             elif mode == PPSMode.BOTH:
                 # Включаем оба режима
                 print(f"Включение PPS both для {interface}")
-                return self._enable_pps_both(interface)
+                success = self._enable_pps_both(interface)
             else:
                 print(f"Неизвестный режим PPS: {mode}")
                 return False
+            
+            # Если успешно изменили PPS режим, обновляем информацию о NIC
+            if success:
+                print(f"Обновление информации о NIC {interface} после изменения PPS")
+                self.refresh_nic_info(interface)
+            
+            return success
             
         except Exception as e:
             print(f"Ошибка при установке PPS режима: {e}")
@@ -565,14 +588,23 @@ class IntelNICManager:
                 f"/sys/class/net/{interface}/tcxo_enabled"
             ]
             
+            success = False
             for tcxo_path in tcxo_paths:
                 if os.path.exists(tcxo_path):
                     try:
                         with open(tcxo_path, 'w') as f:
                             f.write("1" if enabled else "0")
-                        return True
+                        success = True
+                        break
                     except Exception:
                         continue
+            
+            # Если успешно изменили TCXO, обновляем информацию о NIC
+            if success:
+                print(f"Обновление информации о NIC {interface} после изменения TCXO")
+                self.refresh_nic_info(interface)
+            
+            return success
                         
         except Exception as e:
             print(f"Ошибка при настройке TCXO: {e}")
