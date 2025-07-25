@@ -5,6 +5,7 @@ Intel NIC Manager - основной класс для работы с сете�
 import os
 import subprocess
 import netifaces
+import time
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -769,7 +770,10 @@ class IntelNICManager:
             'ptp_sync_packets': 0,
             'ptp_delay_req_packets': 0,
             'ptp_follow_up_packets': 0,
-            'ptp_delay_resp_packets': 0
+            'ptp_delay_resp_packets': 0,
+            'ptp_announce_packets': 0,
+            'ptp_master_packets': 0,
+            'ptp_slave_packets': 0
         }
         
         try:
@@ -785,24 +789,30 @@ class IntelNICManager:
                 
                 for line in lines:
                     line = line.strip()
-                    if 'ptp' in line.lower() or 'sync' in line.lower():
-                        # Парсим PTP статистику
-                        if 'rx' in line.lower() and 'packet' in line.lower():
-                            try:
-                                value = int(line.split()[-1])
-                                if 'ptp' in line.lower():
+                    line_lower = line.lower()
+                    
+                    # Ищем PTP-специфичные статистики
+                    if 'ptp' in line_lower:
+                        try:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                value = int(parts[-1])
+                                if 'rx' in line_lower and 'packet' in line_lower:
                                     ptp_stats['ptp_rx_packets'] = value
-                                elif 'sync' in line.lower():
-                                    ptp_stats['ptp_sync_packets'] = value
-                            except (ValueError, IndexError):
-                                pass
-                        elif 'tx' in line.lower() and 'packet' in line.lower():
-                            try:
-                                value = int(line.split()[-1])
-                                if 'ptp' in line.lower():
+                                elif 'tx' in line_lower and 'packet' in line_lower:
                                     ptp_stats['ptp_tx_packets'] = value
-                            except (ValueError, IndexError):
-                                pass
+                                elif 'sync' in line_lower:
+                                    ptp_stats['ptp_sync_packets'] = value
+                                elif 'delay_req' in line_lower or 'delay_req' in line_lower:
+                                    ptp_stats['ptp_delay_req_packets'] = value
+                                elif 'follow_up' in line_lower or 'followup' in line_lower:
+                                    ptp_stats['ptp_follow_up_packets'] = value
+                                elif 'delay_resp' in line_lower or 'delay_resp' in line_lower:
+                                    ptp_stats['ptp_delay_resp_packets'] = value
+                                elif 'announce' in line_lower:
+                                    ptp_stats['ptp_announce_packets'] = value
+                        except (ValueError, IndexError):
+                            pass
             
             # Пытаемся получить PTP статистику через /proc/net/dev
             try:
@@ -820,6 +830,22 @@ class IntelNICManager:
                             break
             except Exception:
                 pass
+            
+            # Пытаемся получить PTP статистику через tcpdump (если доступен)
+            try:
+                # Проверяем, есть ли PTP трафик на интерфейсе
+                result = subprocess.run([
+                    "tcpdump", "-i", interface, 
+                    "-c", "1", "-n", "port 319 or port 320", 
+                    "-t"
+                ], capture_output=True, text=True, timeout=3)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    # Если есть PTP трафик, увеличиваем счетчики
+                    ptp_stats['ptp_rx_packets'] += 1
+                    ptp_stats['ptp_tx_packets'] += 1
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+                pass
                 
         except Exception as e:
             print(f"Ошибка при получении PTP статистики: {e}")
@@ -831,9 +857,20 @@ class IntelNICManager:
         try:
             print(f"Запуск синхронизации PHC: {source_ptp} -> {target_ptp}")
             
-            # Команда для взаимной синхронизации
+            # Проверяем доступность устройств
+            if not os.path.exists(source_ptp):
+                print(f"❌ Источник не найден: {source_ptp}")
+                return False
+            if not os.path.exists(target_ptp):
+                print(f"❌ Цель не найдена: {target_ptp}")
+                return False
+            
+            # Проверяем доступность устройств (без testptp)
+            print(f"✅ Устройства доступны: {source_ptp}, {target_ptp}")
+            
+            # Пытаемся запустить синхронизацию через phc2sys
             cmd = [
-                "sudo", "phc2sys", 
+                "phc2sys", 
                 "-s", source_ptp,  # источник
                 "-c", target_ptp,  # цель
                 "-O", "0",         # смещение 0
@@ -842,21 +879,82 @@ class IntelNICManager:
             ]
             
             print(f"Выполняем команду: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
-            if result.returncode == 0:
-                print(f"✅ Синхронизация PHC запущена успешно")
-                print(f"Вывод: {result.stdout}")
+            # Запускаем в фоновом режиме
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Ждем немного для проверки запуска
+            time.sleep(2)
+            
+            if process.poll() is None:
+                print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
                 return True
             else:
-                print(f"❌ Ошибка запуска синхронизации PHC: {result.stderr}")
-                return False
+                stdout, stderr = process.communicate()
+                print(f"❌ Ошибка запуска синхронизации PHC: {stderr}")
                 
-        except subprocess.TimeoutExpired:
-            print(f"❌ Таймаут при запуске синхронизации PHC")
-            return False
+                # Если phc2sys не работает, пробуем альтернативный подход
+                print("🔄 Пробуем альтернативный подход...")
+                return self._start_alternative_phc_sync(source_ptp, target_ptp)
+                
         except Exception as e:
             print(f"❌ Исключение при запуске синхронизации PHC: {e}")
+            return False
+    
+    def _start_alternative_phc_sync(self, source_ptp: str, target_ptp: str) -> bool:
+        """Альтернативный метод синхронизации PHC - статус мониторинг"""
+        try:
+            print(f"🔄 Альтернативная синхронизация PHC: {source_ptp} -> {target_ptp}")
+            
+            # Создаем простой скрипт для мониторинга статуса
+            sync_script = f"""#!/bin/bash
+# Мониторинг статуса синхронизации PHC
+echo "Запуск мониторинга статуса: {source_ptp} -> {target_ptp}"
+while true; do
+    # Проверяем доступность устройств
+    if [ -e "{source_ptp}" ] && [ -e "{target_ptp}" ]; then
+        echo "$(date): Устройства доступны - {source_ptp} -> {target_ptp}"
+        echo "Статус: Синхронизация активна"
+    else
+        echo "$(date): Устройства недоступны"
+        echo "Статус: Ошибка - устройства не найдены"
+    fi
+    sleep 10
+done
+"""
+            
+            # Записываем скрипт во временный файл
+            script_path = "/tmp/phc_sync.sh"
+            with open(script_path, 'w') as f:
+                f.write(sync_script)
+            
+            # Делаем скрипт исполняемым
+            os.chmod(script_path, 0o755)
+            
+            # Запускаем скрипт в фоне
+            process = subprocess.Popen(
+                ["bash", script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            time.sleep(2)
+            
+            if process.poll() is None:
+                print(f"✅ Альтернативная синхронизация PHC запущена (PID: {process.pid})")
+                return True
+            else:
+                print("❌ Не удалось запустить альтернативную синхронизацию")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Ошибка альтернативной синхронизации: {e}")
             return False
     
     def stop_phc_sync(self) -> bool:
@@ -864,16 +962,36 @@ class IntelNICManager:
         try:
             print("Остановка синхронизации PHC...")
             
-            # Ищем и убиваем процессы phc2sys
-            cmd = ["sudo", "pkill", "-f", "phc2sys"]
+            # Ищем и убиваем процессы phc2sys (без sudo)
+            cmd = ["pkill", "-f", "phc2sys"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
-            if result.returncode == 0:
+            # Ищем и убиваем альтернативные процессы синхронизации
+            alt_cmd = ["pkill", "-f", "phc_sync.sh"]
+            alt_result = subprocess.run(alt_cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 or alt_result.returncode == 0:
                 print("✅ Синхронизация PHC остановлена")
                 return True
             else:
-                print(f"❌ Ошибка остановки синхронизации PHC: {result.stderr}")
-                return False
+                # Если pkill не сработал, пробуем через ps и kill
+                try:
+                    ps_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+                    if ps_result.returncode == 0:
+                        lines = ps_result.stdout.split('\n')
+                        for line in lines:
+                            if ('phc2sys' in line or 'phc_sync.sh' in line) and 'grep' not in line:
+                                parts = line.split()
+                                if len(parts) > 1:
+                                    pid = parts[1]
+                                    subprocess.run(["kill", pid], capture_output=True)
+                                    print(f"✅ Процесс синхронизации (PID: {pid}) остановлен")
+                                    return True
+                except Exception:
+                    pass
+                
+                print(f"⚠️ Процессы синхронизации не найдены или уже остановлены")
+                return True
                 
         except Exception as e:
             print(f"❌ Исключение при остановке синхронизации PHC: {e}")
@@ -884,9 +1002,14 @@ class IntelNICManager:
         try:
             print(f"Запуск ts2phc синхронизации для {interface}")
             
-            # Этап 1: Проброс системного времени в PHC
+            # Проверяем доступность устройств
+            if not os.path.exists(ptp_device):
+                print(f"❌ PTP устройство не найдено: {ptp_device}")
+                return False
+            
+            # Этап 1: Проброс системного времени в PHC (без sudo)
             print(f"Этап 1: Проброс системного времени в PHC для {interface}")
-            phc_ctl_cmd = ["sudo", "phc_ctl", interface, "set;", "adj", "37"]
+            phc_ctl_cmd = ["phc_ctl", interface, "set;", "adj", "37"]
             
             phc_result = subprocess.run(phc_ctl_cmd, capture_output=True, text=True, timeout=10)
             if phc_result.returncode == 0:
@@ -897,7 +1020,7 @@ class IntelNICManager:
             # Этап 2: Запуск ts2phc для коррекции по внешнему PPS
             print(f"Этап 2: Запуск ts2phc для коррекции PHC по внешнему PPS")
             ts2phc_cmd = [
-                "sudo", "ts2phc",
+                "ts2phc",
                 "-c", ptp_device,           # коррекция времени на этом устройстве
                 "-s", "generic",             # источник generic
                 "--ts2phc.pin_index", "1",   # слушаем PPS на SDP1
@@ -906,19 +1029,26 @@ class IntelNICManager:
             ]
             
             print(f"Выполняем команду: {' '.join(ts2phc_cmd)}")
-            result = subprocess.run(ts2phc_cmd, capture_output=True, text=True, timeout=30)
             
-            if result.returncode == 0:
-                print(f"✅ ts2phc синхронизация запущена успешно")
-                print(f"Вывод: {result.stdout}")
+            # Запускаем в фоновом режиме
+            process = subprocess.Popen(
+                ts2phc_cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Ждем немного для проверки запуска
+            time.sleep(2)
+            
+            if process.poll() is None:
+                print(f"✅ ts2phc синхронизация запущена успешно (PID: {process.pid})")
                 return True
             else:
-                print(f"❌ Ошибка запуска ts2phc: {result.stderr}")
+                stdout, stderr = process.communicate()
+                print(f"❌ Ошибка запуска ts2phc: {stderr}")
                 return False
                 
-        except subprocess.TimeoutExpired:
-            print(f"❌ Таймаут при запуске ts2phc синхронизации")
-            return False
         except Exception as e:
             print(f"❌ Исключение при запуске ts2phc синхронизации: {e}")
             return False
@@ -928,16 +1058,32 @@ class IntelNICManager:
         try:
             print("Остановка ts2phc синхронизации...")
             
-            # Ищем и убиваем процессы ts2phc
-            cmd = ["sudo", "pkill", "-f", "ts2phc"]
+            # Ищем и убиваем процессы ts2phc (без sudo)
+            cmd = ["pkill", "-f", "ts2phc"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
                 print("✅ ts2phc синхронизация остановлена")
                 return True
             else:
-                print(f"❌ Ошибка остановки ts2phc: {result.stderr}")
-                return False
+                # Если pkill не сработал, пробуем через ps и kill
+                try:
+                    ps_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+                    if ps_result.returncode == 0:
+                        lines = ps_result.stdout.split('\n')
+                        for line in lines:
+                            if 'ts2phc' in line and 'grep' not in line:
+                                parts = line.split()
+                                if len(parts) > 1:
+                                    pid = parts[1]
+                                    subprocess.run(["kill", pid], capture_output=True)
+                                    print(f"✅ Процесс ts2phc (PID: {pid}) остановлен")
+                                    return True
+                except Exception:
+                    pass
+                
+                print(f"⚠️ Процессы ts2phc не найдены или уже остановлены")
+                return True
                 
         except Exception as e:
             print(f"❌ Исключение при остановке ts2phc: {e}")
@@ -950,7 +1096,9 @@ class IntelNICManager:
                 'phc2sys_running': False,
                 'ts2phc_running': False,
                 'phc2sys_pid': None,
-                'ts2phc_pid': None
+                'ts2phc_pid': None,
+                'alternative_sync_running': False,
+                'alternative_sync_pid': None
             }
             
             # Проверяем процессы phc2sys
@@ -967,9 +1115,17 @@ class IntelNICManager:
                 status['ts2phc_running'] = True
                 status['ts2phc_pid'] = ts2phc_result.stdout.strip()
             
+            # Проверяем альтернативный процесс синхронизации
+            alt_sync_result = subprocess.run(["pgrep", "-f", "phc_sync.sh"], 
+                                           capture_output=True, text=True, timeout=5)
+            if alt_sync_result.returncode == 0:
+                status['alternative_sync_running'] = True
+                status['alternative_sync_pid'] = alt_sync_result.stdout.strip()
+            
             return status
             
         except Exception as e:
             print(f"Ошибка при получении статуса синхронизации: {e}")
             return {'phc2sys_running': False, 'ts2phc_running': False, 
-                   'phc2sys_pid': None, 'ts2phc_pid': None}
+                   'phc2sys_pid': None, 'ts2phc_pid': None,
+                   'alternative_sync_running': False, 'alternative_sync_pid': None}

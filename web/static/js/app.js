@@ -13,18 +13,24 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Ленивая инициализация остальных компонентов
     setTimeout(() => {
-    initializeSocket();
-    refreshNICs();
-    refreshTimeNICs();
+        initializeSocket();
+        refreshNICs();
+        refreshTimeNICs();
+        loadPtpDevices();
     }, 100);
     
     // Инициализация графиков только при необходимости
     document.addEventListener('click', function(e) {
         if (e.target && e.target.getAttribute('data-bs-target') === '#monitoring') {
             if (!isInitialized) {
-    initializeCharts();
+                initializeCharts();
                 isInitialized = true;
             }
+        }
+        
+        // Автоматическое обновление PTP устройств при переключении на вкладку синхронизации
+        if (e.target && e.target.getAttribute('data-bs-target') === '#sync') {
+            loadPtpDevices();
         }
     });
     
@@ -234,10 +240,11 @@ function escapeHtml(text) {
 function updateNICSelects(nics) {
     const nicSelect = document.getElementById('nicSelect');
     const monitorNicSelect = document.getElementById('monitorNicSelect');
+    const ptpMonitorNicSelect = document.getElementById('ptpMonitorNicSelect');
     
     if (nicSelect) {
         nicSelect.innerHTML = '<option value="">Выберите NIC</option>';
-    nics.forEach(nic => {
+        nics.forEach(nic => {
             const option = document.createElement('option');
             option.value = nic.name;
             option.textContent = `${nic.name} (${nic.mac_address})`;
@@ -252,7 +259,17 @@ function updateNICSelects(nics) {
             option.value = nic.name;
             option.textContent = `${nic.name} (${nic.mac_address})`;
             monitorNicSelect.appendChild(option);
-    });
+        });
+    }
+    
+    if (ptpMonitorNicSelect) {
+        ptpMonitorNicSelect.innerHTML = '<option value="">Выберите NIC для PTP мониторинга</option>';
+        nics.forEach(nic => {
+            const option = document.createElement('option');
+            option.value = nic.name;
+            option.textContent = `${nic.name} (${nic.mac_address})`;
+            ptpMonitorNicSelect.appendChild(option);
+        });
     }
 }
 
@@ -674,19 +691,36 @@ function updateStats() {
         if (data.ptp_stats) {
             statsHtml += `
                 <hr>
-                <h6>PTP Статистика:</h6>
+                <h6><i class="fas fa-clock"></i> PTP Статистика:</h6>
                 <div class="row">
                     <div class="col-6">
                         <strong>PTP RX пакеты:</strong><br>
                         <span class="badge bg-primary">${data.ptp_stats.ptp_rx_packets || 0}</span><br><br>
                         <strong>PTP TX пакеты:</strong><br>
-                        <span class="badge bg-success">${data.ptp_stats.ptp_tx_packets || 0}</span>
-                    </div>
-                    <div class="col-6">
+                        <span class="badge bg-success">${data.ptp_stats.ptp_tx_packets || 0}</span><br><br>
                         <strong>PTP Sync пакеты:</strong><br>
                         <span class="badge bg-info">${data.ptp_stats.ptp_sync_packets || 0}</span><br><br>
                         <strong>PTP Delay Req:</strong><br>
                         <span class="badge bg-warning">${data.ptp_stats.ptp_delay_req_packets || 0}</span>
+                    </div>
+                    <div class="col-6">
+                        <strong>PTP Follow Up:</strong><br>
+                        <span class="badge bg-secondary">${data.ptp_stats.ptp_follow_up_packets || 0}</span><br><br>
+                        <strong>PTP Delay Resp:</strong><br>
+                        <span class="badge bg-dark">${data.ptp_stats.ptp_delay_resp_packets || 0}</span><br><br>
+                        <strong>PTP Announce:</strong><br>
+                        <span class="badge bg-light text-dark">${data.ptp_stats.ptp_announce_packets || 0}</span><br><br>
+                        <strong>PTP Master/Slave:</strong><br>
+                        <span class="badge bg-danger">${data.ptp_stats.ptp_master_packets || 0}</span> / 
+                        <span class="badge bg-info">${data.ptp_stats.ptp_slave_packets || 0}</span>
+                    </div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle"></i> 
+                            PTP трафик отслеживается на портах 319 (Event) и 320 (General)
+                        </small>
                     </div>
                 </div>
             `;
@@ -839,6 +873,384 @@ function displayTimeNICInfo(timenic) {
 }
 
 // Запуск синхронизации PHC для TimeNIC
+// PTP Мониторинг
+let ptpMonitoringInterval = null;
+let currentPtpInterface = null;
+
+function startPtpMonitoring() {
+    const interface = document.getElementById('ptpMonitorNicSelect').value;
+    if (!interface) {
+        showAlert('Ошибка', 'Выберите NIC для PTP мониторинга');
+        return;
+    }
+    
+    currentPtpInterface = interface;
+    
+    // Останавливаем предыдущий мониторинг если есть
+    if (ptpMonitoringInterval) {
+        clearInterval(ptpMonitoringInterval);
+    }
+    
+    // Запускаем мониторинг
+    ptpMonitoringInterval = setInterval(() => {
+        fetchPtpData(interface);
+    }, 2000); // Обновляем каждые 2 секунды
+    
+    // Первоначальный запрос
+    fetchPtpData(interface);
+    
+    showAlert('Успех', `PTP мониторинг запущен для ${interface}`);
+}
+
+function stopPtpMonitoring() {
+    if (ptpMonitoringInterval) {
+        clearInterval(ptpMonitoringInterval);
+        ptpMonitoringInterval = null;
+    }
+    currentPtpInterface = null;
+    
+    // Очищаем отображение
+    document.getElementById('ptpStatsContainer').innerHTML = 
+        '<p class="text-muted">PTP мониторинг остановлен</p>';
+    
+    showAlert('Информация', 'PTP мониторинг остановлен');
+}
+
+function fetchPtpData(interface) {
+    fetch(`/api/ptp/monitor/${interface}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updatePtpStats(data.data);
+                updatePtpSyncStatus(data.data.ptp_sync_status);
+            } else {
+                console.error('Ошибка получения PTP данных:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка запроса PTP данных:', error);
+        });
+}
+
+function updatePtpStats(data) {
+    const container = document.getElementById('ptpStatsContainer');
+    const ptpStats = data.ptp_stats;
+    
+    let html = `
+        <h6><i class="fas fa-chart-bar"></i> PTP Статистика для ${data.interface}:</h6>
+        <div class="row">
+            <div class="col-6">
+                <strong>PTP RX пакеты:</strong><br>
+                <span class="badge bg-primary">${ptpStats.ptp_rx_packets || 0}</span><br><br>
+                <strong>PTP TX пакеты:</strong><br>
+                <span class="badge bg-success">${ptpStats.ptp_tx_packets || 0}</span><br><br>
+                <strong>PTP Sync пакеты:</strong><br>
+                <span class="badge bg-info">${ptpStats.ptp_sync_packets || 0}</span><br><br>
+                <strong>PTP Delay Req:</strong><br>
+                <span class="badge bg-warning">${ptpStats.ptp_delay_req_packets || 0}</span>
+            </div>
+            <div class="col-6">
+                <strong>PTP Follow Up:</strong><br>
+                <span class="badge bg-secondary">${ptpStats.ptp_follow_up_packets || 0}</span><br><br>
+                <strong>PTP Delay Resp:</strong><br>
+                <span class="badge bg-dark">${ptpStats.ptp_delay_resp_packets || 0}</span><br><br>
+                <strong>PTP Announce:</strong><br>
+                <span class="badge bg-light text-dark">${ptpStats.ptp_announce_packets || 0}</span><br><br>
+                <strong>PTP Master/Slave:</strong><br>
+                <span class="badge bg-danger">${ptpStats.ptp_master_packets || 0}</span> / 
+                <span class="badge bg-info">${ptpStats.ptp_slave_packets || 0}</span>
+            </div>
+        </div>
+        <div class="row mt-2">
+            <div class="col-12">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle"></i> 
+                    Обновлено: ${new Date().toLocaleTimeString()}
+                </small>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function updatePtpSyncStatus(syncStatus) {
+    // Обновляем статус phc2sys
+    const phc2sysElement = document.getElementById('phc2sysStatus');
+    if (phc2sysElement) {
+        if (syncStatus.phc2sys_running) {
+            phc2sysElement.className = 'badge bg-success';
+            phc2sysElement.textContent = 'phc2sys: Запущен';
+        } else {
+            phc2sysElement.className = 'badge bg-danger';
+            phc2sysElement.textContent = 'phc2sys: Остановлен';
+        }
+    }
+    
+    // Обновляем статус ts2phc
+    const ts2phcElement = document.getElementById('ts2phcStatus');
+    if (ts2phcElement) {
+        if (syncStatus.ts2phc_running) {
+            ts2phcElement.className = 'badge bg-success';
+            ts2phcElement.textContent = 'ts2phc: Запущен';
+        } else {
+            ts2phcElement.className = 'badge bg-danger';
+            ts2phcElement.textContent = 'ts2phc: Остановлен';
+        }
+    }
+    
+    // Обновляем статус ptp4l
+    const ptp4lElement = document.getElementById('ptp4lStatus');
+    if (ptp4lElement) {
+        if (syncStatus.ptp4l_running) {
+            ptp4lElement.className = 'badge bg-success';
+            ptp4lElement.textContent = 'ptp4l: Запущен';
+        } else {
+            ptp4lElement.className = 'badge bg-danger';
+            ptp4lElement.textContent = 'ptp4l: Остановлен';
+        }
+    }
+}
+
+// Загрузка PTP устройств
+function loadPtpDevices() {
+    // Показываем индикатор загрузки
+    const sourceSelect = document.getElementById('sourcePtp');
+    const targetSelect = document.getElementById('targetPtp');
+    
+    if (sourceSelect) {
+        sourceSelect.innerHTML = '<option value="">Загрузка PTP устройств...</option>';
+    }
+    if (targetSelect) {
+        targetSelect.innerHTML = '<option value="">Загрузка PTP устройств...</option>';
+    }
+    
+    fetch('/api/ptp/devices')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updatePtpDeviceSelects(data.data);
+                showAlert('Успех', `Загружено ${data.data.length} PTP устройств`);
+            } else {
+                console.error('Ошибка загрузки PTP устройств:', data.error);
+                showAlert('Ошибка', 'Не удалось загрузить PTP устройства');
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка запроса PTP устройств:', error);
+            showAlert('Ошибка', 'Ошибка сети при загрузке PTP устройств');
+        });
+}
+
+function updatePtpDeviceSelects(devices) {
+    const sourceSelect = document.getElementById('sourcePtp');
+    const targetSelect = document.getElementById('targetPtp');
+    
+    if (sourceSelect) {
+        sourceSelect.innerHTML = '<option value="">Выберите источник PTP</option>';
+        devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.path;
+            
+            // Создаем текст с иконкой статуса
+            const statusIcon = device.available ? '✅' : '❌';
+            const statusText = device.available ? 'доступно' : 'недоступно';
+            const pinInfo = device.pins ? ` (${device.pins})` : '';
+            
+            option.textContent = `${device.name} ${statusIcon} ${statusText}${pinInfo}`;
+            option.disabled = !device.available;
+            
+            // Добавляем title для дополнительной информации
+            option.title = device.pins ? `Пины: ${device.pins}` : 'Нет информации о пинах';
+            
+            sourceSelect.appendChild(option);
+        });
+    }
+    
+    if (targetSelect) {
+        targetSelect.innerHTML = '<option value="">Выберите цель PTP</option>';
+        devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.path;
+            
+            // Создаем текст с иконкой статуса
+            const statusIcon = device.available ? '✅' : '❌';
+            const statusText = device.available ? 'доступно' : 'недоступно';
+            const pinInfo = device.pins ? ` (${device.pins})` : '';
+            
+            option.textContent = `${device.name} ${statusIcon} ${statusText}${pinInfo}`;
+            option.disabled = !device.available;
+            
+            // Добавляем title для дополнительной информации
+            option.title = device.pins ? `Пины: ${device.pins}` : 'Нет информации о пинах';
+            
+            targetSelect.appendChild(option);
+        });
+    }
+    
+    // Обновляем отображение в секции PTP мониторинга
+    updatePtpDevicesList(devices);
+    
+    // Показываем информацию о доступных устройствах
+    const availableDevices = devices.filter(d => d.available);
+    if (availableDevices.length > 0) {
+        console.log(`Доступно PTP устройств: ${availableDevices.length}`);
+        availableDevices.forEach(device => {
+            console.log(`  - ${device.path}: ${device.pins || 'без информации о пинах'}`);
+        });
+    } else {
+        console.log('PTP устройства не найдены или недоступны');
+    }
+}
+
+function updatePtpDevicesList(devices) {
+    const container = document.getElementById('ptpDevicesList');
+    if (!container) return;
+    
+    if (devices.length === 0) {
+        container.innerHTML = '<p class="text-muted">PTP устройства не найдены</p>';
+        return;
+    }
+    
+    let html = '<div class="row">';
+    devices.forEach(device => {
+        const statusClass = device.available ? 'success' : 'danger';
+        const statusIcon = device.available ? '✅' : '❌';
+        const statusText = device.available ? 'Доступно' : 'Недоступно';
+        
+        html += `
+            <div class="col-md-6 mb-2">
+                <div class="card border-${statusClass}">
+                    <div class="card-body p-2">
+                        <h6 class="card-title mb-1">
+                            <i class="fas fa-microchip"></i> ${device.name}
+                        </h6>
+                        <p class="card-text mb-1">
+                            <small class="text-${statusClass}">
+                                ${statusIcon} ${statusText}
+                            </small>
+                        </p>
+                        ${device.pins ? `<p class="card-text mb-0"><small class="text-muted">Пины: ${device.pins}</small></p>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+// PHC Синхронизация функции
+function startPhcSync() {
+    const sourcePtp = document.getElementById('sourcePtp').value;
+    const targetPtp = document.getElementById('targetPtp').value;
+    
+    if (!sourcePtp || !targetPtp) {
+        showAlert('Ошибка', 'Выберите источник и цель PTP');
+        return;
+    }
+    
+    if (sourcePtp === targetPtp) {
+        showAlert('Ошибка', 'Источник и цель не могут быть одинаковыми');
+        return;
+    }
+    
+    fetch('/api/sync/phc/start', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            source_ptp: sourcePtp,
+            target_ptp: targetPtp
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Успех', data.message);
+        } else {
+            showAlert('Ошибка', data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+    });
+}
+
+function stopPhcSync() {
+    fetch('/api/sync/phc/stop', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Успех', data.message);
+        } else {
+            showAlert('Ошибка', data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+    });
+}
+
+function startTs2phcSync() {
+    const sourcePtp = document.getElementById('sourcePtp').value;
+    const targetPtp = document.getElementById('targetPtp').value;
+    
+    if (!sourcePtp || !targetPtp) {
+        showAlert('Ошибка', 'Выберите источник и цель PTP');
+        return;
+    }
+    
+    fetch('/api/sync/ts2phc/start', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            source_ptp: sourcePtp,
+            target_ptp: targetPtp
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Успех', data.message);
+        } else {
+            showAlert('Ошибка', data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+    });
+}
+
+function stopTs2phcSync() {
+    fetch('/api/sync/ts2phc/stop', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Успех', data.message);
+        } else {
+            showAlert('Ошибка', data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('Ошибка', 'Ошибка сети: ' + error.message);
+    });
+}
+
 function startTimeNICPhcSync(timenicName) {
     fetch(`/api/timenics/${timenicName}/phc-sync`, {
         method: 'POST',

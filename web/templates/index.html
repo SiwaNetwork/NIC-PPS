@@ -263,14 +263,29 @@
                             <div class="card-body">
                                 <form id="syncForm">
                                     <div class="mb-3">
-                                        <label for="sourcePtp" class="form-label">Источник PTP:</label>
-                                        <input type="text" class="form-control" id="sourcePtp" placeholder="/dev/ptp0">
-                                </div>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <label for="sourcePtp" class="form-label">
+                                                <i class="fas fa-clock"></i> Источник PTP:
+                                            </label>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadPtpDevices()">
+                                                <i class="fas fa-sync-alt"></i> Обновить
+                                            </button>
+                                        </div>
+                                        <select class="form-select" id="sourcePtp">
+                                            <option value="">Выберите источник PTP</option>
+                                        </select>
+                                        <small class="text-muted">Доступные PTP устройства</small>
+                                    </div>
                                     
                                     <div class="mb-3">
-                                        <label for="targetPtp" class="form-label">Цель PTP:</label>
-                                        <input type="text" class="form-control" id="targetPtp" placeholder="/dev/ptp1">
-                        </div>
+                                        <label for="targetPtp" class="form-label">
+                                            <i class="fas fa-clock"></i> Цель PTP:
+                                        </label>
+                                        <select class="form-select" id="targetPtp">
+                                            <option value="">Выберите цель PTP</option>
+                                        </select>
+                                        <small class="text-muted">Доступные PTP устройства</small>
+                                    </div>
 
                                     <button type="button" class="btn btn-success" onclick="startPhcSync()">
                                         <i class="fas fa-play"></i> Запустить PHC синхронизацию
@@ -337,6 +352,74 @@
                                             <div class="card-body">
                                 <div id="statsContainer">
                                     <p class="text-muted">Запустите мониторинг для отображения статистики</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- PTP Мониторинг -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-clock"></i> PTP Мониторинг
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="ptpMonitorNicSelect" class="form-label">Выберите NIC для PTP мониторинга:</label>
+                                            <select class="form-select" id="ptpMonitorNicSelect">
+                                                <option value="">Выберите NIC</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <button type="button" class="btn btn-primary" onclick="startPtpMonitoring()">
+                                            <i class="fas fa-play"></i> Запустить PTP мониторинг
+                                        </button>
+                                        <button type="button" class="btn btn-danger" onclick="stopPtpMonitoring()">
+                                            <i class="fas fa-stop"></i> Остановить PTP мониторинг
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div id="ptpStatsContainer">
+                                            <p class="text-muted">Запустите PTP мониторинг для отображения статистики</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div id="ptpSyncStatusContainer">
+                                            <h6><i class="fas fa-sync"></i> Статус PTP процессов:</h6>
+                                            <div class="row">
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-secondary" id="phc2sysStatus">phc2sys: Неизвестно</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-secondary" id="ts2phcStatus">ts2phc: Неизвестно</span>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <span class="badge bg-secondary" id="ptp4lStatus">ptp4l: Неизвестно</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div id="ptpDevicesContainer">
+                                            <h6><i class="fas fa-microchip"></i> Доступные PTP устройства:</h6>
+                                            <div id="ptpDevicesList">
+                                                <p class="text-muted">Загрузка PTP устройств...</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

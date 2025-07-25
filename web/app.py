@@ -523,6 +523,101 @@ def stop_monitoring():
     return jsonify({'success': True, 'message': 'Мониторинг остановлен'})
 
 
+@app.route('/api/ptp/devices', methods=['GET'])
+def get_ptp_devices():
+    """API для получения списка доступных PTP устройств"""
+    try:
+        import glob
+        ptp_devices = glob.glob('/dev/ptp*')
+        
+        # Получаем дополнительную информацию о каждом устройстве
+        devices_info = []
+        for device in ptp_devices:
+            device_info = {
+                'path': device,
+                'name': device.split('/')[-1],
+                'available': True
+            }
+            
+            # Проверяем доступность устройства (без sudo)
+            try:
+                # Простая проверка существования файла
+                if os.path.exists(device):
+                    device_info['available'] = True
+                    
+                    # Пытаемся получить информацию о пинах (с sudo, но не критично)
+                    try:
+                        result = subprocess.run(['testptp', '-d', device, '-l'], 
+                                              capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            device_info['pins'] = result.stdout.strip()
+                    except Exception:
+                        # Если не удалось получить информацию о пинах, это не критично
+                        device_info['pins'] = 'Информация недоступна'
+                else:
+                    device_info['available'] = False
+            except Exception:
+                device_info['available'] = False
+            
+            devices_info.append(device_info)
+        
+        return jsonify({'success': True, 'data': devices_info})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ptp/monitor/<interface>', methods=['GET'])
+def get_ptp_monitor(interface):
+    """API для получения PTP мониторинга в реальном времени"""
+    try:
+        # Получаем PTP статистику
+        ptp_stats = nic_manager.get_ptp_statistics(interface)
+        
+        # Получаем информацию о PTP устройствах
+        ptp_devices = []
+        try:
+            import glob
+            ptp_devices = glob.glob('/dev/ptp*')
+        except Exception:
+            pass
+        
+        # Получаем статус PTP синхронизации
+        ptp_sync_status = {
+            'phc2sys_running': False,
+            'ts2phc_running': False,
+            'ptp4l_running': False
+        }
+        
+        try:
+            # Проверяем запущенные процессы
+            result = subprocess.run(['pgrep', '-f', 'phc2sys'], capture_output=True, text=True)
+            ptp_sync_status['phc2sys_running'] = result.returncode == 0
+            
+            result = subprocess.run(['pgrep', '-f', 'ts2phc'], capture_output=True, text=True)
+            ptp_sync_status['ts2phc_running'] = result.returncode == 0
+            
+            result = subprocess.run(['pgrep', '-f', 'ptp4l'], capture_output=True, text=True)
+            ptp_sync_status['ptp4l_running'] = result.returncode == 0
+            
+            # Также проверяем альтернативные процессы
+            result = subprocess.run(['pgrep', '-f', 'phc_sync.sh'], capture_output=True, text=True)
+            ptp_sync_status['alternative_sync_running'] = result.returncode == 0
+        except Exception:
+            pass
+        
+        data = {
+            'interface': interface,
+            'ptp_stats': ptp_stats,
+            'ptp_devices': ptp_devices,
+            'ptp_sync_status': ptp_sync_status,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @socketio.on('connect')
 def handle_connect():
     """Обработчик подключения WebSocket"""
