@@ -1,4 +1,4 @@
-# Intel NIC PPS Configuration and Monitoring Tool
+# SHIWA NIC-PPS
 
 Комплексное решение для конфигурации и мониторинга сетевых карт Intel с поддержкой PPS (Pulse Per Second), TimeNIC, TCXO и PHC синхронизации.
 

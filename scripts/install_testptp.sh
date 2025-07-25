@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Скрипт установки testptp согласно гайду TimeNIC
+# Скрипт установки testptp согласно гайду SHIWA TimeNIC
 
 set -e
 
@@ -66,4 +66,4 @@ rm -rf /tmp/testptp_build
 
 echo ""
 echo "✨ Установка завершена!"
-echo "Теперь вы можете использовать testptp для настройки TimeNIC"
+echo "Теперь вы можете использовать testptp для настройки SHIWA TimeNIC"

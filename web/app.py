@@ -1,5 +1,5 @@
 """
-flask веб-приложение для конфигурации и мониторинга Intel NIC
+flask веб-приложение для конфигурации и мониторинга SHIWA NIC
 """
 
 import sys
@@ -18,7 +18,7 @@ from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'intel-nic-pps-secret-key'
+app.config['SECRET_KEY'] = 'shiwa-nic-pps-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Глобальные менеджеры

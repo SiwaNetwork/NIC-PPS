@@ -78,7 +78,7 @@ class TestIntelNICManager(unittest.TestCase):
     @patch('os.path.basename')
     @patch('os.readlink')
     def test_is_intel_nic(self, mock_readlink, mock_basename, mock_exists):
-        """Тест проверки Intel NIC карты"""
+        """Тест проверки SHIWA NIC карты"""
         mock_exists.return_value = True
         mock_readlink.return_value = "/sys/class/net/eth0/device/driver"
         

@@ -1,4 +1,4 @@
-# Intel NIC PPS Configuration and Monitoring Tool - Подробная документация
+# SHIWA NIC-PPS Configuration and Monitoring Tool - Подробная документация
 
 ## Обзор
 
@@ -56,7 +56,7 @@ pip install -r requirements.txt
 
 ```bash
 # Создание файла sudoers для PPS команд
-echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/shiwa-nic-pps
 
 # Проверка прав
 sudo -n testptp -d /dev/ptp0 -l
@@ -264,7 +264,7 @@ socket.on('ptp_stats', function(data) {
 
 ### Структура проекта
 ```
-NIC-PPS/
+SHIWA NIC-PPS/
 ├── core/                 # Основная логика
 │   ├── __init__.py
 │   ├── nic_manager.py    # Менеджер NIC карт

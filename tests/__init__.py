@@ -1,3 +1,3 @@
 """
-Tests module for Intel NIC PPS Configuration and Monitoring Tool
+Tests module for SHIWA NIC-PPS Configuration and Monitoring Tool
 """

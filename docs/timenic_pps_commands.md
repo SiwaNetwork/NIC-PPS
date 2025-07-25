@@ -79,7 +79,7 @@ python run.py --cli timenic sync-status
 4. **Dependencies**: Install with `pip install -r requirements.txt`
 5. **Sudo configuration**: Configure sudo rights for PPS commands:
    ```bash
-   echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+   echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/shiwa-nic-pps
    ```
 
 ## Examples

@@ -40,7 +40,7 @@ sudo cp testptp /usr/bin/
 
 ```bash
 # Create sudoers file for PPS commands
-echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/shiwa-nic-pps
 
 # Verify sudo configuration
 sudo -n testptp -d /dev/ptp0 -l
@@ -276,7 +276,7 @@ which ts2phc
 sudo -n testptp -d /dev/ptp0 -l
 
 # Reconfigure sudo rights if needed
-echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
+echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/shiwa-nic-pps
 ```
 
 #### 6. PPS not working through tool

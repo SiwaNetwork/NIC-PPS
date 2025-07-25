@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # PTP NIC Setup Script
-# This script configures the PTP device for TimeNIC PCIe card
+# This script configures the PTP device for SHIWA TimeNIC PCIe card
 
 set -e
 
-echo "🔧 Настройка PTP устройства TimeNIC..."
+echo "🔧 Настройка PTP устройства SHIWA TimeNIC..."
 
 # Проверка прав root
 if [[ $EUID -ne 0 ]]; then

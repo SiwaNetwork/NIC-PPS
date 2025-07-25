@@ -1,3 +1,3 @@
 """
-WEB module for Intel NIC PPS Configuration and Monitoring Tool
+WEB module for SHIWA NIC-PPS Configuration and Monitoring Tool
 """
