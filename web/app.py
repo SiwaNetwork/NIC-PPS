@@ -10,6 +10,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_socketio import SocketIO, emit
+from flask_cors import CORS
+import subprocess
 import threading
 
 # Добавляем путь к core модулю
@@ -18,8 +20,14 @@ from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'shiwa-nic-pps-secret-key'
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Конфигурация из окружения
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
+
+# Настройка CORS для HTTP и Socket.IO из переменной окружения
+cors_env = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000')
+cors_allowed_origins = [origin.strip() for origin in cors_env.split(',') if origin.strip()]
+CORS(app, resources={r"/api/*": {"origins": cors_allowed_origins}})
+socketio = SocketIO(app, cors_allowed_origins=cors_allowed_origins)
 
 # Глобальные менеджеры
 nic_manager = IntelNICManager()
@@ -36,7 +44,7 @@ timenic_cache = {}
 last_timenic_refresh = 0
 CACHE_DURATION = 5  # секунд
 TIMENIC_REFRESH_INTERVAL = 10  # секунд
-MONITORING_INTERVAL = 3  # секунд вместо 1
+MONITORING_INTERVAL = int(os.environ.get('MONITORING_INTERVAL_SEC', '3'))
 
 # Глобальные переменные для синхронизации
 phc_sync_process = None
@@ -121,11 +129,7 @@ def get_timenics():
                     'num_programmable_pins': timenic.ptp_info.num_programmable_pins,
                     'pps_capabilities': timenic.ptp_info.pps_capabilities
                 },
-                'ptm_status': {
-                    'enabled': timenic.ptm_status.enabled,
-                    'master': timenic.ptm_status.master,
-                    'slave': timenic.ptm_status.slave
-                },
+                'ptm_status': timenic.ptm_status.value,
                 'stats': stats
             })
         
@@ -163,11 +167,7 @@ def get_timenic_info(interface):
                 'num_programmable_pins': timenic.ptp_info.num_programmable_pins,
                 'pps_capabilities': timenic.ptp_info.pps_capabilities
             },
-            'ptm_status': {
-                'enabled': timenic.ptm_status.enabled,
-                'master': timenic.ptm_status.master,
-                'slave': timenic.ptm_status.slave
-            },
+            'ptm_status': timenic.ptm_status.value,
             'stats': stats
         }
         
@@ -183,7 +183,7 @@ def set_timenic_pps_mode(interface):
         data = request.get_json()
         mode = data.get('mode')
         
-        if mode not in ['disabled', 'input', 'output']:
+        if mode not in ['disabled', 'input', 'output', 'both']:
             return jsonify({'success': False, 'error': 'Неверный режим PPS'})
         
         success = timenic_manager.set_pps_mode(interface, PPSMode(mode))
@@ -204,7 +204,7 @@ def set_timenic_tcxo(interface):
         data = request.get_json()
         enabled = data.get('enabled', False)
         
-        success = timenic_manager.set_tcxo(interface, enabled)
+        success = timenic_manager.set_tcxo_enabled(interface, enabled)
         if success:
             return jsonify({'success': True, 'message': f'TCXO {"включен" if enabled else "выключен"}'})
         else:
@@ -280,23 +280,16 @@ def set_pps_mode(interface):
         data = request.get_json()
         mode = data.get('mode')
         
-        print(f"=== API: Установка PPS режима {interface} -> {mode} ===")
-        
-        if mode not in ['disabled', 'input', 'output']:
+        if mode not in ['disabled', 'input', 'output', 'both']:
             return jsonify({'success': False, 'error': 'Неверный режим PPS'})
         
         success = nic_manager.set_pps_mode(interface, PPSMode(mode))
-        print(f"Результат set_pps_mode: {success}")
         
         if success:
             # Обновляем информацию о карте
-            print(f"Обновление информации о NIC {interface}")
-            updated_nic = nic_manager.refresh_nic_info(interface)
-            print(f"Обновленная информация: {updated_nic}")
-            
+            nic_manager.refresh_nic_info(interface)
             return jsonify({'success': True, 'message': f'PPS режим установлен: {mode}'})
         else:
-            print(f"Ошибка установки PPS режима для {interface}")
             return jsonify({'success': False, 'error': 'Не удалось установить PPS режим'})
     except Exception as e:
         print(f"Исключение в API set_pps_mode: {e}")
@@ -312,7 +305,7 @@ def set_tcxo(interface):
         data = request.get_json()
         enabled = data.get('enabled', False)
         
-        success = nic_manager.set_tcxo(interface, enabled)
+        success = nic_manager.set_tcxo_enabled(interface, enabled)
         if success:
             return jsonify({'success': True, 'message': f'TCXO {"включен" if enabled else "выключен"}'})
         else:
@@ -631,4 +624,7 @@ def handle_disconnect():
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    debug_enabled = os.environ.get('FLASK_DEBUG', '0') == '1'
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+    port = int(os.environ.get('FLASK_PORT', '5000'))
+    socketio.run(app, host=host, port=port, debug=debug_enabled)

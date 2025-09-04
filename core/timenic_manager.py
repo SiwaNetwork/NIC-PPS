@@ -625,6 +625,23 @@ class TimeNICManager:
             self.logger.error(f"Ошибка при отключении PTM: {e}")
             return False
         return False
+
+    def set_ptm(self, interface: str, enabled: bool, master: bool = False) -> bool:
+        """Унифицированный метод управления PTM
+        
+        Args:
+            interface: сетевой интерфейс
+            enabled: включить или выключить PTM
+            master: зарезервировано для расширений; пока не используется
+        """
+        try:
+            if enabled:
+                return self.enable_ptm(interface)
+            else:
+                return self.disable_ptm(interface)
+        except Exception as e:
+            self.logger.error(f"Ошибка при установке PTM: {e}")
+            return False
     
     def read_pps_events(self, ptp_device: str, count: int = 5) -> List[Dict[str, Any]]:
         """Чтение PPS событий с внешнего источника
