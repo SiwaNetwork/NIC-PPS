@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch, MagicMock, mock_open
 import sys
 import os
+import netifaces
 
 # Добавляем путь к core модулю
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
