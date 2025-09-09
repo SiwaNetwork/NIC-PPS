@@ -77,7 +77,7 @@
         <div class="container-fluid">
             <a class="navbar-brand" href="#">
                 <i class="fas fa-network-wired"></i>
-                SHIWA NIC-PPS Tool
+                SHIWA NIC-PPS Tool <small class="text-light" id="version-info">v1.1.0</small>
             </a>
             <div class="navbar-nav ms-auto">
                 <span class="navbar-text" id="connection-status">
@@ -435,7 +435,25 @@
     <!-- Ленивая загрузка Socket.IO -->
     <script>
         // Загружаем Socket.IO при необходимости
+        // Загрузка версии
+        function loadVersion() {
+            fetch('/api/version')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const versionElement = document.getElementById('version-info');
+                        if (versionElement) {
+                            versionElement.textContent = `v${data.version.version}`;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка загрузки версии:', error);
+                });
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
+            loadVersion();
             setTimeout(loadSocketIO, 1000);
         });
     </script>

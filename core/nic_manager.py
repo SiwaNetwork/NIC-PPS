@@ -587,6 +587,8 @@ class IntelNICManager:
                             clock_num = line.split(':')[1].strip()
                             ptp_device = f"/dev/ptp{clock_num}"
                             if os.path.exists(ptp_device):
+                                # Для сетевых интерфейсов (enp3s0, eno1) используем их собственное PTP устройство
+                                # которое имеет SDP пины для INTEL I210 разъема
                                 return ptp_device
                         except Exception:
                             pass
@@ -596,6 +598,8 @@ class IntelNICManager:
         # Резервный метод: ищем все PTP устройства
         ptp_devices = self._find_ptp_devices(interface)
         if ptp_devices:
+            # Для сетевых интерфейсов возвращаем первое найденное устройство
+            # (обычно это /dev/ptp0 для основной сетевой карты)
             return ptp_devices[0]
         
         return None
@@ -620,6 +624,29 @@ class IntelNICManager:
             pass
         
         return ptp_devices
+    
+    def _has_sma_pins(self, ptp_device: str) -> bool:
+        """Проверка наличия SMA пинов на PTP устройстве"""
+        try:
+            result = subprocess.run(['testptp', '-d', ptp_device, '-l'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Проверяем наличие SMA пинов в выводе
+                return 'sma' in result.stdout.lower()
+        except Exception:
+            pass
+        return False
+    
+    def _find_sma_ptp_device(self) -> Optional[str]:
+        """Поиск PTP устройства с SMA пинами"""
+        try:
+            import glob
+            for ptp_device in glob.glob("/dev/ptp*"):
+                if self._has_sma_pins(ptp_device):
+                    return ptp_device
+        except Exception:
+            pass
+        return None
     
     def check_pps_capabilities(self, interface: str) -> Dict[str, bool]:
         """Проверка возможностей PPS управления для интерфейса"""

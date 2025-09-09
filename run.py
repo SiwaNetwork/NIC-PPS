@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Главный скрипт для запуска Intel NIC PPS Configuration and Monitoring Tool
+Версия 1.1.0 - Исправлено определение PTP устройства для Intel I210
 """
 
 import sys
@@ -8,6 +9,15 @@ import os
 import argparse
 import subprocess
 from pathlib import Path
+
+# Импорт версии
+try:
+    from version import get_version, get_version_info
+except ImportError:
+    def get_version():
+        return "unknown"
+    def get_version_info():
+        return {"version": "unknown"}
 
 
 def check_dependencies():
@@ -276,6 +286,13 @@ def check_system():
 
 def main():
     """Главная функция"""
+    # Отображение версии
+    version_info = get_version_info()
+    print(f"SHIWA NIC-PPS Configuration and Monitoring Tool v{version_info['version']}")
+    print(f"Build: {version_info['build_date']}")
+    print(f"Description: {version_info['description']}")
+    print()
+    
     parser = argparse.ArgumentParser(
         description="Intel NIC PPS Configuration and Monitoring Tool",
         add_help=False

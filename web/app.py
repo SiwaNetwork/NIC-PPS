@@ -1,5 +1,6 @@
 """
 flask веб-приложение для конфигурации и мониторинга SHIWA NIC
+Версия 1.1.0 - Исправлено определение PTP устройства для Intel I210
 """
 
 import sys
@@ -18,6 +19,15 @@ import threading
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
+
+# Импорт версии
+try:
+    from version import get_version, get_version_info
+except ImportError:
+    def get_version():
+        return "unknown"
+    def get_version_info():
+        return {"version": "unknown"}
 
 app = Flask(__name__)
 # Конфигурация из окружения
@@ -56,6 +66,21 @@ def index():
     """Главная страница"""
     return render_template('index.html')
 
+
+@app.route('/api/version')
+def get_version_api():
+    """API для получения версии приложения"""
+    try:
+        version_info = get_version_info()
+        return jsonify({
+            "success": True,
+            "version": version_info
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route('/api/nics')
 def get_nics():
