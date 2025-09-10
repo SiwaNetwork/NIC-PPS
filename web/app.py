@@ -19,6 +19,53 @@ import threading
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
+from monitoring import init_flask_metrics, metrics_collector, health_checker
+
+def get_network_statistics(interface):
+    """Получает статистику сети для любого интерфейса"""
+    try:
+        with open('/proc/net/dev', 'r') as f:
+            lines = f.readlines()
+        
+        for line in lines:
+            if interface in line:
+                parts = line.split(':')
+                if len(parts) >= 2:
+                    stats = parts[1].split()
+                    if len(stats) >= 16:
+                        return {
+                            'rx_bytes': int(stats[0]),
+                            'rx_packets': int(stats[1]),
+                            'rx_errors': int(stats[2]),
+                            'rx_dropped': int(stats[3]),
+                            'tx_bytes': int(stats[8]),
+                            'tx_packets': int(stats[9]),
+                            'tx_errors': int(stats[10]),
+                            'tx_dropped': int(stats[11])
+                        }
+        
+        return {
+            'rx_bytes': 0,
+            'rx_packets': 0,
+            'rx_errors': 0,
+            'rx_dropped': 0,
+            'tx_bytes': 0,
+            'tx_packets': 0,
+            'tx_errors': 0,
+            'tx_dropped': 0
+        }
+    except Exception as e:
+        print(f"Ошибка получения статистики для {interface}: {e}")
+        return {
+            'rx_bytes': 0,
+            'rx_packets': 0,
+            'rx_errors': 0,
+            'rx_dropped': 0,
+            'tx_bytes': 0,
+            'tx_packets': 0,
+            'tx_errors': 0,
+            'tx_dropped': 0
+        }
 
 # Импорт версии
 try:
@@ -308,7 +355,16 @@ def set_pps_mode(interface):
         if mode not in ['disabled', 'input', 'output', 'both']:
             return jsonify({'success': False, 'error': 'Неверный режим PPS'})
         
+        # Получаем текущий режим для метрик
+        current_nic = nic_manager.get_nic_by_name(interface)
+        current_mode = current_nic.pps_mode.value if current_nic else 'unknown'
+        
         success = nic_manager.set_pps_mode(interface, PPSMode(mode))
+        
+        # Записываем изменение режима в метрики
+        if success:
+            metrics_collector.record_pps_mode_change(interface, current_mode, mode)
+        print(f"Результат set_pps_mode: {success}")
         
         if success:
             # Обновляем информацию о карте
@@ -505,9 +561,15 @@ def start_monitoring():
             global monitoring_active, monitoring_data
             while monitoring_active:
                 try:
-                    # Получаем статистику
-                    stats = nic_manager.get_statistics(interface)
-                    ptp_stats = nic_manager.get_ptp_statistics(interface)
+                    # Получаем статистику сети
+                    stats = get_network_statistics(interface)
+                    
+                    # Получаем PTP статистику (если доступна)
+                    ptp_stats = {}
+                    try:
+                        ptp_stats = nic_manager.get_ptp_statistics(interface)
+                    except:
+                        ptp_stats = {'error': 'PTP статистика недоступна'}
                     
                     monitoring_data = {
                         'timestamp': datetime.now().isoformat(),
@@ -647,6 +709,42 @@ def handle_disconnect():
     """Обработчик отключения WebSocket"""
     print('Клиент отключился')
 
+
+# Инициализация метрик
+init_flask_metrics(app)
+
+# Добавляем endpoint для проверки состояния системы
+@app.route('/api/health')
+def health_check():
+    """API для проверки состояния системы"""
+    return jsonify(health_checker.run_all_checks())
+
+@app.route('/api/interfaces/active')
+def get_active_interfaces():
+    """API для получения списка активных интерфейсов"""
+    try:
+        import subprocess
+        result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True)
+        interfaces = []
+        
+        for line in result.stdout.split('\n'):
+            if 'state UP' in line and 'LOOPBACK' not in line:
+                # Извлекаем имя интерфейса
+                parts = line.split(':')
+                if len(parts) >= 2:
+                    interface_name = parts[1].strip().split('@')[0]
+                    if interface_name and interface_name != 'lo':
+                        interfaces.append(interface_name)
+        
+        return jsonify({
+            'success': True,
+            'interfaces': interfaces
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
 
 if __name__ == '__main__':
     debug_enabled = os.environ.get('FLASK_DEBUG', '0') == '1'

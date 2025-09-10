@@ -1,3 +1,3 @@
 """
-Tests module for SHIWA NIC-PPS Configuration and Monitoring Tool
+Тестовый модуль для SHIWA NIC-PPS
 """

@@ -6,6 +6,14 @@ let monitoringData = {};
 let currentMonitoringInterface = null;
 let isInitialized = false;
 
+// Импорт систем уведомлений и загрузки
+if (typeof window.notificationManager === 'undefined') {
+    console.warn('NotificationManager не загружен');
+}
+if (typeof window.loadingManager === 'undefined') {
+    console.warn('LoadingManager не загружен');
+}
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
     // Быстрая инициализация основных элементов
@@ -17,6 +25,7 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshNICs();
         refreshTimeNICs();
         loadPtpDevices();
+        loadActiveInterfaces();
     }, 100);
     
     // Инициализация графиков только при необходимости
@@ -107,10 +116,16 @@ function initializeSocket() {
 function updateConnectionStatus(connected) {
     const statusElement = document.getElementById('connection-status');
     if (statusElement) {
-    if (connected) {
-        statusElement.innerHTML = '<i class="fas fa-circle text-success"></i> Подключено';
-    } else {
-            statusElement.innerHTML = '<i class="fas fa-circle text-warning"></i> Отключено';
+        if (connected) {
+            statusElement.innerHTML = '<i class="fas fa-circle text-success"></i> Подключено';
+            if (window.showSuccess) {
+                window.showSuccess('Соединение с сервером восстановлено', 3000);
+            }
+        } else {
+            statusElement.innerHTML = '<i class="fas fa-circle text-danger"></i> Отключено';
+            if (window.showError) {
+                window.showError('Соединение с сервером потеряно', 5000);
+            }
         }
     }
 }
@@ -548,11 +563,42 @@ function initializeCharts() {
     }
 }
 
+// Загрузка активных интерфейсов
+function loadActiveInterfaces() {
+    fetch('/api/interfaces/active')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const select = document.getElementById('monitorNicSelect');
+                if (select) {
+                    // Очищаем текущие опции
+                    select.innerHTML = '';
+                    
+                    // Добавляем активные интерфейсы
+                    data.interfaces.forEach(interface => {
+                        const option = document.createElement('option');
+                        option.value = interface;
+                        option.textContent = interface;
+                        select.appendChild(option);
+                    });
+                    
+                    // Если есть активные интерфейсы, выбираем первый
+                    if (data.interfaces.length > 0) {
+                        select.value = data.interfaces[0];
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка загрузки активных интерфейсов:', error);
+        });
+}
+
 // Запуск мониторинга
 function startMonitoring() {
     const nicName = document.getElementById('monitorNicSelect').value;
     if (!nicName) {
-        showAlert('Ошибка', 'Выберите NIC карту для мониторинга');
+        showAlert('Ошибка', 'Выберите интерфейс для мониторинга');
         return;
     }
     

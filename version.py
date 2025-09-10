@@ -2,10 +2,10 @@
 Версия проекта SHIWA NIC-PPS Configuration and Monitoring Tool
 """
 
-__version__ = "1.1.0"
-__version_info__ = (1, 1, 0)
-__build_date__ = "2025-09-09"
-__description__ = "SHIWA NIC-PPS Configuration and Monitoring Tool - Fixed PTP device detection for Intel I210"
+__version__ = "1.2.0"
+__version_info__ = (1, 2, 0)
+__build_date__ = "2025-09-10"
+__description__ = "SHIWA NIC-PPS Configuration and Monitoring Tool - Modern web interface with monitoring and metrics"
 
 def get_version():
     """Получить версию проекта"""

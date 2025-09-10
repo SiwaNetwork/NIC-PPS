@@ -1,0 +1,319 @@
+<!-- Панель метрик и мониторинга -->
+<div class="row mb-4 p-3">
+    <div class="col-md-3 mb-3">
+        <div class="card metrics-card fade-in">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-server fa-lg"></i>
+                </div>
+                <h5 class="card-title text-white mb-3">Система</h5>
+                <div id="system-status" class="mb-3">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <div class="metric-value text-white" id="cpu-usage">-</div>
+                <div class="metric-label">CPU</div>
+                <div class="metric-value text-white mt-2" id="memory-usage">-</div>
+                <div class="metric-label">RAM</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metrics-card fade-in" style="animation-delay: 0.1s;">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-network-wired fa-lg"></i>
+                </div>
+                <h5 class="card-title text-white mb-3">Сеть</h5>
+                <div id="network-status" class="mb-3">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <div class="metric-value text-white" id="network-count">-</div>
+                <div class="metric-label">Интерфейсов</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metrics-card fade-in" style="animation-delay: 0.2s;">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-clock fa-lg"></i>
+                </div>
+                <h5 class="card-title text-white mb-3">PTP</h5>
+                <div id="ptp-status" class="mb-3">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <div class="metric-value text-white" id="ptp-count">-</div>
+                <div class="metric-label">Устройств</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card metrics-card fade-in" style="animation-delay: 0.3s;">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-pulse fa-lg"></i>
+                </div>
+                <h5 class="card-title text-white mb-3">PPS</h5>
+                <div id="pps-status" class="mb-3">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <div class="metric-value text-white" id="testptp-status">-</div>
+                <div class="metric-label">testptp</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Детальная панель метрик -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Системные метрики
+                </h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshMetrics()">
+                        <i class="fas fa-sync-alt"></i> Обновить
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleMetricsAutoRefresh()">
+                        <i class="fas fa-play" id="auto-refresh-icon"></i>
+                        <span id="auto-refresh-text">Авто</span>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Использование ресурсов</h6>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between">
+                                <span>CPU</span>
+                                <span id="cpu-percent">0%</span>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar" id="cpu-progress" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between">
+                                <span>Память</span>
+                                <span id="memory-percent">0%</span>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar bg-success" id="memory-progress" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Дисковое пространство</h6>
+                        <div id="disk-usage">
+                            <!-- Динамически заполняется -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Панель PPS метрик -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-pulse me-2"></i>
+                    PPS метрики
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-primary" id="pps-signals-total">0</h4>
+                            <small class="text-muted">Всего PPS сигналов</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-success" id="pps-mode-changes-total">0</h4>
+                            <small class="text-muted">Изменений режима</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h4 class="text-warning" id="ptp-errors-total">0</h4>
+                            <small class="text-muted">PTP ошибок</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Переменные для автообновления метрик
+let metricsAutoRefresh = false;
+let metricsInterval = null;
+
+// Функция обновления метрик
+async function refreshMetrics() {
+    try {
+        const response = await fetch('/api/health');
+        const data = await response.json();
+        
+        updateHealthStatus(data);
+        
+        // Обновляем сводку метрик
+        const metricsResponse = await fetch('/api/metrics/summary');
+        const metricsData = await metricsResponse.json();
+        
+        updateMetricsSummary(metricsData);
+        
+    } catch (error) {
+        console.error('Ошибка обновления метрик:', error);
+        if (window.showError) {
+            window.showError('Ошибка загрузки метрик');
+        }
+    }
+}
+
+// Обновление статуса здоровья системы
+function updateHealthStatus(data) {
+    const statusMap = {
+        'healthy': { class: 'bg-success', text: 'Здорово' },
+        'warning': { class: 'bg-warning', text: 'Предупреждение' },
+        'error': { class: 'bg-danger', text: 'Ошибка' }
+    };
+    
+    // Обновляем общий статус
+    const overallStatus = statusMap[data.overall_status] || statusMap['error'];
+    
+    // Обновляем статусы компонентов
+    Object.keys(data.checks).forEach(component => {
+        const check = data.checks[component];
+        const status = statusMap[check.status] || statusMap['error'];
+        const element = document.getElementById(`${component}-status`);
+        if (element) {
+            element.innerHTML = `<span class="badge ${status.class}">${status.text}</span>`;
+        }
+    });
+    
+    // Обновляем детали
+    if (data.checks.system && data.checks.system.status === 'healthy') {
+        document.getElementById('cpu-usage').textContent = data.checks.system.cpu_usage.toFixed(1);
+        document.getElementById('memory-usage').textContent = data.checks.system.memory_usage.toFixed(1);
+    }
+    
+    if (data.checks.network) {
+        document.getElementById('network-count').textContent = data.checks.network.count || 0;
+    }
+    
+    if (data.checks.ptp) {
+        document.getElementById('ptp-count').textContent = data.checks.ptp.count || 0;
+    }
+    
+    if (data.checks.pps) {
+        document.getElementById('testptp-status').textContent = 
+            data.checks.pps.testptp_available ? 'Доступен' : 'Недоступен';
+    }
+}
+
+// Обновление сводки метрик
+function updateMetricsSummary(data) {
+    // Обновляем системные метрики
+    if (data.system) {
+        const cpuPercent = data.system.cpu_usage.toFixed(1);
+        const memoryPercent = data.system.memory_usage.toFixed(1);
+        
+        document.getElementById('cpu-percent').textContent = cpuPercent + '%';
+        document.getElementById('memory-percent').textContent = memoryPercent + '%';
+        
+        const cpuProgress = document.getElementById('cpu-progress');
+        const memoryProgress = document.getElementById('memory-progress');
+        
+        cpuProgress.style.width = cpuPercent + '%';
+        memoryProgress.style.width = memoryPercent + '%';
+        
+        // Цветовая индикация
+        cpuProgress.className = 'progress-bar ' + 
+            (data.system.cpu_usage > 80 ? 'bg-danger' : 
+             data.system.cpu_usage > 60 ? 'bg-warning' : 'bg-success');
+        
+        memoryProgress.className = 'progress-bar ' + 
+            (data.system.memory_usage > 80 ? 'bg-danger' : 
+             data.system.memory_usage > 60 ? 'bg-warning' : 'bg-success');
+        
+        // Обновляем дисковое пространство
+        updateDiskUsage(data.system.disk_usage);
+    }
+}
+
+// Обновление использования диска
+function updateDiskUsage(diskUsage) {
+    const container = document.getElementById('disk-usage');
+    container.innerHTML = '';
+    
+    Object.keys(diskUsage).forEach(device => {
+        const usage = diskUsage[device];
+        const div = document.createElement('div');
+        div.className = 'mb-2';
+        
+        div.innerHTML = `
+            <div class="d-flex justify-content-between">
+                <span>${device}</span>
+                <span>${usage.toFixed(1)}%</span>
+            </div>
+            <div class="progress">
+                <div class="progress-bar ${usage > 80 ? 'bg-danger' : usage > 60 ? 'bg-warning' : 'bg-info'}" 
+                     role="progressbar" style="width: ${usage}%"></div>
+            </div>
+        `;
+        
+        container.appendChild(div);
+    });
+}
+
+// Переключение автообновления метрик
+function toggleMetricsAutoRefresh() {
+    metricsAutoRefresh = !metricsAutoRefresh;
+    const icon = document.getElementById('auto-refresh-icon');
+    const text = document.getElementById('auto-refresh-text');
+    
+    if (metricsAutoRefresh) {
+        icon.className = 'fas fa-pause';
+        text.textContent = 'Пауза';
+        metricsInterval = setInterval(refreshMetrics, 10000); // Каждые 10 секунд
+        if (window.showInfo) {
+            window.showInfo('Автообновление метрик включено');
+        }
+    } else {
+        icon.className = 'fas fa-play';
+        text.textContent = 'Авто';
+        if (metricsInterval) {
+            clearInterval(metricsInterval);
+            metricsInterval = null;
+        }
+        if (window.showInfo) {
+            window.showInfo('Автообновление метрик отключено');
+        }
+    }
+}
+
+// Инициализация метрик при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+    // Загружаем метрики сразу
+    refreshMetrics();
+    
+    // Устанавливаем автообновление по умолчанию
+    setTimeout(() => {
+        toggleMetricsAutoRefresh();
+    }, 2000);
+});
+</script>

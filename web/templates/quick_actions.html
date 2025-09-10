@@ -1,0 +1,192 @@
+<!-- Панель быстрых действий -->
+<div class="row mb-4 p-3">
+    <div class="col-12">
+        <div class="card glass-effect">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-bolt me-2"></i>
+                    Быстрые действия
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-primary w-100 h-100 d-flex flex-column align-items-center justify-content-center py-4" 
+                                onclick="quickAction('refresh-all')">
+                            <i class="fas fa-sync-alt fa-2x mb-2"></i>
+                            <span>Обновить все</span>
+                        </button>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-success w-100 h-100 d-flex flex-column align-items-center justify-content-center py-4" 
+                                onclick="quickAction('start-monitoring')">
+                            <i class="fas fa-play fa-2x mb-2"></i>
+                            <span>Запустить мониторинг</span>
+                        </button>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-warning w-100 h-100 d-flex flex-column align-items-center justify-content-center py-4" 
+                                onclick="quickAction('check-system')">
+                            <i class="fas fa-check-circle fa-2x mb-2"></i>
+                            <span>Проверить систему</span>
+                        </button>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <button class="btn btn-info w-100 h-100 d-flex flex-column align-items-center justify-content-center py-4" 
+                                onclick="quickAction('export-logs')">
+                            <i class="fas fa-download fa-2x mb-2"></i>
+                            <span>Экспорт логов</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Панель статуса системы -->
+<div class="row mb-4 p-3">
+    <div class="col-md-6 mb-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-server fa-lg"></i>
+                </div>
+                <h6 class="card-title">Статус системы</h6>
+                <div id="system-overview-status" class="mb-2">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <small class="text-muted">Последняя проверка: <span id="last-check">-</span></small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="icon-wrapper mx-auto mb-3">
+                    <i class="fas fa-network-wired fa-lg"></i>
+                </div>
+                <h6 class="card-title">Сетевые интерфейсы</h6>
+                <div id="network-overview-status" class="mb-2">
+                    <span class="status-badge warning">Проверка...</span>
+                </div>
+                <small class="text-muted">Активных: <span id="active-interfaces">-</span></small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Функции быстрых действий
+function quickAction(action) {
+    switch(action) {
+        case 'refresh-all':
+            if (window.showInfo) {
+                window.showInfo('Обновление всех данных...');
+            }
+            // Обновляем все данные
+            if (typeof refreshNICs === 'function') refreshNICs();
+            if (typeof refreshTimeNICs === 'function') refreshTimeNICs();
+            if (typeof refreshMetrics === 'function') refreshMetrics();
+            break;
+            
+        case 'start-monitoring':
+            if (window.showInfo) {
+                window.showInfo('Запуск мониторинга...');
+            }
+            // Переключаемся на вкладку мониторинга
+            if (window.navigationManager) {
+                window.navigationManager.goToTab('monitoring');
+            }
+            break;
+            
+        case 'check-system':
+            if (window.showInfo) {
+                window.showInfo('Проверка состояния системы...');
+            }
+            // Переключаемся на вкладку метрик
+            if (window.navigationManager) {
+                window.navigationManager.goToTab('metrics');
+            }
+            break;
+            
+        case 'export-logs':
+            if (window.showInfo) {
+                window.showInfo('Экспорт логов в разработке...');
+            }
+            // TODO: Реализовать экспорт логов
+            break;
+    }
+}
+
+// Обновление статуса системы
+function updateSystemOverview() {
+    fetch('/api/health')
+        .then(response => response.json())
+        .then(data => {
+            const statusElement = document.getElementById('system-overview-status');
+            const lastCheckElement = document.getElementById('last-check');
+            
+            if (statusElement) {
+                const status = data.overall_status;
+                const statusMap = {
+                    'healthy': { class: 'up', text: 'Здорово' },
+                    'warning': { class: 'warning', text: 'Предупреждение' },
+                    'error': { class: 'down', text: 'Ошибка' }
+                };
+                
+                const statusInfo = statusMap[status] || statusMap['error'];
+                statusElement.innerHTML = `<span class="status-badge ${statusInfo.class}">${statusInfo.text}</span>`;
+            }
+            
+            if (lastCheckElement) {
+                lastCheckElement.textContent = new Date().toLocaleTimeString();
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка обновления статуса:', error);
+        });
+}
+
+// Обновление статуса сети
+function updateNetworkOverview() {
+    fetch('/api/nics')
+        .then(response => response.json())
+        .then(data => {
+            const statusElement = document.getElementById('network-overview-status');
+            const activeElement = document.getElementById('active-interfaces');
+            
+            if (data.success && data.nics) {
+                const activeCount = data.nics.filter(nic => nic.status === 'up').length;
+                const totalCount = data.nics.length;
+                
+                if (statusElement) {
+                    const statusClass = activeCount > 0 ? 'up' : 'down';
+                    const statusText = activeCount > 0 ? 'Активны' : 'Неактивны';
+                    statusElement.innerHTML = `<span class="status-badge ${statusClass}">${statusText}</span>`;
+                }
+                
+                if (activeElement) {
+                    activeElement.textContent = `${activeCount}/${totalCount}`;
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка обновления сети:', error);
+        });
+}
+
+// Автообновление каждые 30 секунд
+setInterval(() => {
+    updateSystemOverview();
+    updateNetworkOverview();
+}, 30000);
+
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        updateSystemOverview();
+        updateNetworkOverview();
+    }, 1000);
+});
+</script>
