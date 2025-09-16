@@ -682,6 +682,36 @@
                                         <small class="text-muted">Доступные PTP устройства</small>
                                     </div>
 
+                                    <!-- Поля для компенсации задержки -->
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-clock"></i> Компенсация задержки:
+                                        </label>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label for="offsetSeconds" class="form-label small">Секунды:</label>
+                                                <input type="number" class="form-control" id="offsetSeconds" 
+                                                       step="0.000001" min="-1" max="1" value="0" 
+                                                       placeholder="0.000000">
+                                                <small class="text-muted">±1.000000 с</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="offsetNanoseconds" class="form-label small">Наносекунды:</label>
+                                                <input type="number" class="form-control" id="offsetNanoseconds" 
+                                                       min="-999999999" max="999999999" value="0" 
+                                                       placeholder="0">
+                                                <small class="text-muted">±999,999,999 нс</small>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2">
+                                            <label for="syncRate" class="form-label small">Скорость коррекции:</label>
+                                            <input type="number" class="form-control" id="syncRate" 
+                                                   step="0.1" min="0" max="1" value="0" 
+                                                   placeholder="0.0 (автоматическая)">
+                                            <small class="text-muted">0.0 = автоматическая, 0.1-1.0 = ручная</small>
+                                        </div>
+                                    </div>
+
                                     <button type="button" class="btn btn-success" onclick="startPhcSync()">
                                         <i class="fas fa-play"></i> Запустить PHC синхронизацию
                                     </button>
@@ -693,6 +723,30 @@
                                 <hr>
                                 
                                 <h6>TS2PHC синхронизация:</h6>
+                                
+                                <!-- Поля для компенсации задержки TS2PHC -->
+                                <div class="mb-3">
+                                    <label class="form-label small">
+                                        <i class="fas fa-clock"></i> Компенсация задержки TS2PHC:
+                                    </label>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label for="ts2phcOffsetSeconds" class="form-label small">Секунды:</label>
+                                            <input type="number" class="form-control" id="ts2phcOffsetSeconds" 
+                                                   step="0.000001" min="-1" max="1" value="0" 
+                                                   placeholder="0.000000">
+                                            <small class="text-muted">±1.000000 с</small>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="ts2phcOffsetNanoseconds" class="form-label small">Наносекунды:</label>
+                                            <input type="number" class="form-control" id="ts2phcOffsetNanoseconds" 
+                                                   min="-999999999" max="999999999" value="0" 
+                                                   placeholder="0">
+                                            <small class="text-muted">±999,999,999 нс</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                                 <button type="button" class="btn btn-info" onclick="startTs2phcSync()">
                                     <i class="fas fa-play"></i> Запустить TS2PHC
                                 </button>

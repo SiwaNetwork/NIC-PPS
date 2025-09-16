@@ -1058,10 +1058,18 @@ done
             print(f"❌ Исключение при остановке синхронизации PHC: {e}")
             return False
     
-    def start_ts2phc_sync(self, interface: str, ptp_device: str) -> bool:
-        """Запуск синхронизации PHC по внешнему PPS"""
+    def start_ts2phc_sync(self, interface: str, ptp_device: str, offset_ns: int = 0) -> bool:
+        """Запуск синхронизации PHC по внешнему PPS с настраиваемой задержкой
+        
+        Args:
+            interface: Имя интерфейса
+            ptp_device: PTP устройство
+            offset_ns: Задержка в наносекундах (положительная или отрицательная)
+        """
         try:
             print(f"Запуск ts2phc синхронизации для {interface}")
+            if offset_ns != 0:
+                print(f"Задержка: {offset_ns} нс ({offset_ns/1_000_000_000:.9f} с)")
             
             # Проверяем доступность устройств
             if not os.path.exists(ptp_device):
@@ -1088,6 +1096,19 @@ done
                 "-m",                        # вывод логов в консоль
                 "-l", "7"                    # уровень детализации логов
             ]
+            
+            # Применяем offset через phc_ctl перед запуском ts2phc
+            if offset_ns != 0:
+                offset_sec = offset_ns / 1_000_000_000.0
+                adj_cmd = ["phc_ctl", interface, "adj", str(int(offset_sec * 1_000_000))]  # в микросекундах
+                print(f"Применяем offset {offset_ns} нс через phc_ctl: {' '.join(adj_cmd)}")
+                try:
+                    subprocess.run(adj_cmd, check=True, timeout=5)
+                    print(f"✅ Offset {offset_ns} нс применен успешно")
+                except subprocess.CalledProcessError as e:
+                    print(f"⚠️ Предупреждение при применении offset: {e}")
+                except subprocess.TimeoutExpired:
+                    print(f"⚠️ Таймаут при применении offset")
             
             print(f"Выполняем команду: {' '.join(ts2phc_cmd)}")
             
@@ -1190,3 +1211,66 @@ done
             return {'phc2sys_running': False, 'ts2phc_running': False, 
                    'phc2sys_pid': None, 'ts2phc_pid': None,
                    'alternative_sync_running': False, 'alternative_sync_pid': None}
+    
+    def start_phc_to_phc_sync(self, source_ptp: str, target_ptp: str, offset_ns: int = 0, rate: float = 0.0) -> bool:
+        """Запуск синхронизации одного PHC с другим с настраиваемой задержкой
+        
+        Args:
+            source_ptp: Исходное PTP устройство (например, /dev/ptp2)
+            target_ptp: Целевое PTP устройство (например, /dev/ptp0)
+            offset_ns: Задержка в наносекундах (положительная или отрицательная)
+            rate: Скорость коррекции (0.0 = автоматическая)
+        """
+        try:
+            # Валидация offset
+            if abs(offset_ns) > 1_000_000_000:  # ±1 секунда
+                print(f"❌ Offset {offset_ns} нс выходит за допустимые пределы (±1 с)")
+                return False
+            
+            # Валидация rate
+            if rate < 0.0 or rate > 1.0:
+                print(f"❌ Скорость коррекции {rate} должна быть в диапазоне 0.0-1.0")
+                return False
+            
+            # Проверяем доступность устройств
+            if not os.path.exists(source_ptp) or not os.path.exists(target_ptp):
+                print(f"❌ PTP устройства недоступны: {source_ptp}, {target_ptp}")
+                return False
+            
+            print(f"Запуск синхронизации PHC: {source_ptp} -> {target_ptp}")
+            if offset_ns != 0:
+                print(f"Задержка: {offset_ns} нс ({offset_ns/1_000_000_000:.9f} с)")
+            if rate != 0.0:
+                print(f"Скорость коррекции: {rate}")
+            
+            # Запускаем phc2sys для синхронизации между PHC
+            cmd = [
+                "phc2sys",
+                "-s", source_ptp,  # источник
+                "-c", target_ptp,  # цель
+                "-O", "0",         # offset в секундах
+                "-R", "16",        # скорость коррекции
+                "-m"               # вывод логов в консоль
+            ]
+            
+            # Добавляем offset если указан
+            if offset_ns != 0:
+                offset_sec = offset_ns / 1_000_000_000.0
+                cmd[5] = str(offset_sec)  # заменяем "-O", "0" на "-O", str(offset_sec)
+                print(f"Применяется задержка {offset_ns} нс ({offset_sec:.9f} с)")
+            
+            # Добавляем скорость коррекции если указана
+            if rate != 0.0:
+                cmd[7] = str(rate)  # заменяем "-R", "16" на "-R", str(rate)
+                print(f"Скорость коррекции: {rate}")
+            
+            print(f"Выполняем команду: {' '.join(cmd)}")
+            
+            # Запускаем в фоне
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при запуске синхронизации PHC: {e}")
+            return False

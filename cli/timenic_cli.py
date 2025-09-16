@@ -164,16 +164,29 @@ def set_tcxo(interface, enable):
 
 @timenic.command()
 @click.argument('interface')
-def start_phc_sync(interface):
-    """Запуск синхронизации PHC по внешнему PPS"""
+@click.option('--offset', type=float, default=0.0, help='Задержка в секундах (положительная или отрицательная)')
+@click.option('--offset-ns', type=int, default=0, help='Задержка в наносекундах (положительная или отрицательная)')
+def start_phc_sync(interface, offset, offset_ns):
+    """Запуск синхронизации PHC по внешнему PPS с настраиваемой задержкой
+    
+    Примеры:
+    timenic start-phc-sync enp3s0 --offset 0.001    # +1 мс задержка
+    timenic start-phc-sync enp3s0 --offset -0.0005  # -0.5 мс задержка
+    timenic start-phc-sync enp3s0 --offset-ns 1000  # +1000 нс задержка
+    """
     try:
         manager = TimeNICManager()
         
-        with console.status(f"Запуск синхронизации PHC для {interface}..."):
-            success = manager.start_phc_synchronization(interface)
+        # Конвертируем offset в наносекунды
+        total_offset_ns = int(offset * 1_000_000_000) + offset_ns
+        
+        with console.status(f"Запуск синхронизации PHC для {interface} с задержкой {total_offset_ns} нс..."):
+            success = manager.start_phc_synchronization(interface, offset_ns=total_offset_ns)
         
         if success:
             console.print(f"[green]✓ Синхронизация PHC запущена для {interface}[/green]")
+            if total_offset_ns != 0:
+                console.print(f"[cyan]Задержка: {total_offset_ns} нс ({total_offset_ns/1_000_000_000:.9f} с)[/cyan]")
             console.print("[yellow]Используйте Ctrl+C для остановки[/yellow]")
         else:
             console.print(f"[red]✗ Ошибка при запуске синхронизации PHC для {interface}[/red]")
@@ -241,16 +254,18 @@ def list_ptp():
 @timenic.command()
 @click.argument('ptp_device')
 @click.option('--count', '-c', default=5, help='Количество событий для чтения')
-def read_pps(ptp_device, count):
-    """Чтение PPS событий с внешнего источника
+@click.option('--show-filtered', is_flag=True, help='Показать статистику фильтрации')
+def read_pps(ptp_device, count, show_filtered):
+    """Чтение PPS событий с внешнего источника с автоматической фильтрацией
     
-    Пример: timenic read-pps /dev/ptp0 --count 10
+    Пример: timenic read-pps /dev/ptp0 --count 10 --show-filtered
     """
     try:
         manager = TimeNICManager()
         
         console.print(f"[cyan]Чтение {count} PPS событий с {ptp_device}...[/cyan]")
         console.print("[yellow]Ожидание событий (подключите внешний PPS к SMA2)...[/yellow]")
+        console.print("[blue]Автоматическая фильтрация двойных фронтов включена[/blue]")
         
         with Progress(
             SpinnerColumn(),
@@ -267,17 +282,90 @@ def read_pps(ptp_device, count):
             console.print("[red]События не получены. Проверьте подключение PPS к SMA2[/red]")
             return
         
-        table = Table(title=f"PPS События с {ptp_device}")
-        table.add_column("Индекс", style="cyan")
+        table = Table(title=f"Отфильтрованные PPS События с {ptp_device}")
+        table.add_column("№", style="cyan")
+        table.add_column("Индекс", style="blue")
         table.add_column("Временная метка", style="green")
+        table.add_column("Тип", style="yellow")
         
-        for event in events:
+        for i, event in enumerate(events, 1):
+            event_type = event.get('event_type', 'unknown')
             table.add_row(
+                str(i),
                 str(event['index']),
-                event['timestamp']
+                event['timestamp'],
+                event_type
             )
         
         console.print(table)
+        
+        # Показываем статистику фильтрации если запрошено
+        if show_filtered:
+            stats = manager.get_pps_statistics(ptp_device)
+            if 'error' not in stats:
+                console.print(f"\n[blue]Статистика фильтрации:[/blue]")
+                console.print(f"  Всего событий: {stats['total_events']}")
+                console.print(f"  Отфильтровано: {stats['filtered_events']}")
+                console.print(f"  Прошло фильтр: {stats['valid_events']}")
+                console.print(f"  Процент фильтрации: {stats['filter_rate']:.1f}%")
+                
+                if stats['filtered_events'] > 0:
+                    console.print(f"[green]✓ Двойные фронты PPS успешно отфильтрованы![/green]")
+                else:
+                    console.print(f"[yellow]ℹ Двойные фронты не обнаружены[/yellow]")
+        
+    except Exception as e:
+        console.print(f"[red]Ошибка: {e}[/red]")
+
+
+@timenic.command()
+@click.argument('ptp_device')
+@click.option('--duration', '-d', default=30, help='Длительность мониторинга в секундах')
+def monitor_pps(ptp_device, duration):
+    """Мониторинг PPS событий в реальном времени с фильтрацией
+    
+    Пример: timenic monitor-pps /dev/ptp0 --duration 60
+    """
+    try:
+        manager = TimeNICManager()
+        
+        console.print(f"[cyan]Запуск мониторинга PPS событий с {ptp_device} на {duration} секунд...[/cyan]")
+        console.print("[blue]Автоматическая фильтрация двойных фронтов включена[/blue]")
+        console.print("[yellow]Нажмите Ctrl+C для остановки[/yellow]")
+        
+        events_received = 0
+        
+        def event_callback(event):
+            nonlocal events_received
+            events_received += 1
+            console.print(f"[green]Событие {events_received}:[/green] "
+                         f"Время: {event.timestamp:.6f}, "
+                         f"Тип: {event.event_type.value}, "
+                         f"Пин: {event.pin_index}")
+        
+        # Запускаем мониторинг
+        if not manager.start_pps_monitoring(ptp_device, event_callback):
+            console.print("[red]Не удалось запустить мониторинг[/red]")
+            return
+        
+        try:
+            # Ждем указанное время
+            import time
+            time.sleep(duration)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Мониторинг остановлен пользователем[/yellow]")
+        finally:
+            # Останавливаем мониторинг
+            manager.stop_pps_monitoring(ptp_device)
+            
+            # Показываем статистику
+            stats = manager.get_pps_statistics(ptp_device)
+            if 'error' not in stats:
+                console.print(f"\n[blue]Статистика мониторинга:[/blue]")
+                console.print(f"  Получено событий: {events_received}")
+                console.print(f"  Всего событий: {stats['total_events']}")
+                console.print(f"  Отфильтровано: {stats['filtered_events']}")
+                console.print(f"  Процент фильтрации: {stats['filter_rate']:.1f}%")
         
     except Exception as e:
         console.print(f"[red]Ошибка: {e}[/red]")
@@ -315,20 +403,85 @@ def set_period(ptp_device, period):
 
 @timenic.command()
 @click.argument('interface')
-def sync_phc(interface):
-    """Синхронизация PHC с системным временем
+@click.option('--offset', type=float, default=0.0, help='Задержка в секундах (положительная или отрицательная)')
+@click.option('--offset-ns', type=int, default=0, help='Задержка в наносекундах (положительная или отрицательная)')
+def sync_phc(interface, offset, offset_ns):
+    """Синхронизация PHC с системным временем с настраиваемой задержкой
     
-    Пример: timenic sync-phc enp3s0
+    Примеры:
+    timenic sync-phc enp3s0 --offset 0.001    # +1 мс задержка
+    timenic sync-phc enp3s0 --offset -0.0005  # -0.5 мс задержка
+    timenic sync-phc enp3s0 --offset-ns 1000  # +1000 нс задержка
     """
     try:
         manager = TimeNICManager()
         
-        console.print(f"[cyan]Синхронизация PHC с системным временем на {interface}...[/cyan]")
+        # Конвертируем offset в наносекунды
+        total_offset_ns = int(offset * 1_000_000_000) + offset_ns
         
-        if manager.sync_phc_to_system_time(interface):
+        # Валидируем offset
+        if abs(total_offset_ns) > 1_000_000_000:  # ±1 секунда
+            console.print(f"[red]Ошибка: Offset {total_offset_ns} нс выходит за допустимые пределы (±1 с)[/red]")
+            return
+        
+        console.print(f"[cyan]Синхронизация PHC с системным временем на {interface}...[/cyan]")
+        if total_offset_ns != 0:
+            console.print(f"[cyan]Задержка: {total_offset_ns} нс ({total_offset_ns/1_000_000_000:.9f} с)[/cyan]")
+        
+        if manager.sync_phc_to_system_time(interface, offset_ns=total_offset_ns):
             console.print(f"[green]✓ PHC успешно синхронизирован[/green]")
         else:
             console.print(f"[red]✗ Ошибка при синхронизации PHC[/red]")
+            
+    except Exception as e:
+        console.print(f"[red]Ошибка: {e}[/red]")
+
+
+@timenic.command()
+@click.argument('source_ptp')
+@click.argument('target_ptp')
+@click.option('--offset', type=float, default=0.0, help='Задержка в секундах (положительная или отрицательная)')
+@click.option('--offset-ns', type=int, default=0, help='Задержка в наносекундах (положительная или отрицательная)')
+@click.option('--rate', type=float, default=0.0, help='Скорость коррекции (0.0 = автоматическая)')
+def sync_phc_to_phc(source_ptp, target_ptp, offset, offset_ns, rate):
+    """Синхронизация одного PHC с другим с настраиваемой задержкой
+    
+    Примеры:
+    timenic sync-phc-to-phc /dev/ptp2 /dev/ptp0 --offset 0.001    # +1 мс задержка
+    timenic sync-phc-to-phc /dev/ptp2 /dev/ptp0 --offset -0.0005  # -0.5 мс задержка
+    timenic sync-phc-to-phc /dev/ptp2 /dev/ptp0 --offset-ns 1000  # +1000 нс задержка
+    timenic sync-phc-to-phc /dev/ptp2 /dev/ptp0 --rate 0.7        # Скорость коррекции 0.7
+    """
+    try:
+        manager = TimeNICManager()
+        
+        # Конвертируем offset в наносекунды
+        total_offset_ns = int(offset * 1_000_000_000) + offset_ns
+        
+        # Валидируем offset
+        if abs(total_offset_ns) > 1_000_000_000:  # ±1 секунда
+            console.print(f"[red]Ошибка: Offset {total_offset_ns} нс выходит за допустимые пределы (±1 с)[/red]")
+            return
+        
+        # Валидируем rate
+        if rate < 0.0 or rate > 1.0:
+            console.print(f"[red]Ошибка: Скорость коррекции {rate} должна быть в диапазоне 0.0-1.0[/red]")
+            return
+        
+        console.print(f"[cyan]Синхронизация {source_ptp} -> {target_ptp}...[/cyan]")
+        if total_offset_ns != 0:
+            console.print(f"[cyan]Задержка: {total_offset_ns} нс ({total_offset_ns/1_000_000_000:.9f} с)[/cyan]")
+        if rate != 0.0:
+            console.print(f"[cyan]Скорость коррекции: {rate}[/cyan]")
+        
+        with console.status("Запуск синхронизации PHC..."):
+            success = manager.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns=total_offset_ns, rate=rate)
+        
+        if success:
+            console.print(f"[green]✓ Синхронизация PHC запущена: {source_ptp} -> {target_ptp}[/green]")
+            console.print("[yellow]Используйте Ctrl+C для остановки[/yellow]")
+        else:
+            console.print(f"[red]✗ Ошибка при запуске синхронизации PHC[/red]")
             
     except Exception as e:
         console.print(f"[red]Ошибка: {e}[/red]")

@@ -19,6 +19,7 @@ import threading
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
+from core.pps_edge_filter import pps_manager, PPSEvent, PPSEventType
 from monitoring import init_flask_metrics, metrics_collector, health_checker
 
 def get_network_statistics(interface):
@@ -397,19 +398,38 @@ def set_tcxo(interface):
 
 @app.route('/api/sync/phc/start', methods=['POST'])
 def start_phc_sync():
-    """API для запуска PHC2SYS синхронизации"""
+    """API для запуска PHC2SYS синхронизации с настраиваемой задержкой"""
     global phc_sync_process
     try:
         data = request.get_json()
         source_ptp = data.get('source_ptp')
         target_ptp = data.get('target_ptp')
+        offset = data.get('offset', 0.0)  # задержка в секундах
+        offset_ns = data.get('offset_ns', 0)  # задержка в наносекундах
+        rate = data.get('rate', 0.0)  # скорость коррекции
         
         if not source_ptp or not target_ptp:
             return jsonify({'success': False, 'error': 'Необходимо указать source_ptp и target_ptp'})
         
-        success = nic_manager.start_phc_sync(source_ptp, target_ptp)
+        # Конвертируем offset в наносекунды
+        total_offset_ns = int(offset * 1_000_000_000) + offset_ns
+        
+        # Валидируем offset
+        if abs(total_offset_ns) > 1_000_000_000:  # ±1 секунда
+            return jsonify({'success': False, 'error': f'Offset {total_offset_ns} нс выходит за допустимые пределы (±1 с)'})
+        
+        # Валидируем rate
+        if rate < 0.0 or rate > 1.0:
+            return jsonify({'success': False, 'error': f'Скорость коррекции {rate} должна быть в диапазоне 0.0-1.0'})
+        
+        success = nic_manager.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns=total_offset_ns, rate=rate)
         if success:
-            return jsonify({'success': True, 'message': f'PHC синхронизация запущена: {source_ptp} -> {target_ptp}'})
+            message = f'PHC синхронизация запущена: {source_ptp} -> {target_ptp}'
+            if total_offset_ns != 0:
+                message += f' (задержка: {total_offset_ns} нс)'
+            if rate != 0.0:
+                message += f' (скорость: {rate})'
+            return jsonify({'success': True, 'message': message})
         else:
             return jsonify({'success': False, 'error': 'Не удалось запустить PHC синхронизацию'})
     except Exception as e:
@@ -432,19 +452,39 @@ def stop_phc_sync():
 
 @app.route('/api/sync/ts2phc/start', methods=['POST'])
 def start_ts2phc_sync():
-    """API для запуска TS2PHC синхронизации"""
+    """API для запуска TS2PHC синхронизации с настраиваемой задержкой"""
     global ts2phc_sync_process
     try:
         data = request.get_json()
         source_ptp = data.get('source_ptp')
         target_ptp = data.get('target_ptp')
+        offset = data.get('offset', 0.0)  # задержка в секундах
+        offset_ns = data.get('offset_ns', 0)  # задержка в наносекундах
         
         if not source_ptp or not target_ptp:
             return jsonify({'success': False, 'error': 'Необходимо указать source_ptp и target_ptp'})
         
-        success = nic_manager.start_ts2phc_sync(source_ptp, target_ptp)
+        # Конвертируем offset в наносекунды
+        total_offset_ns = int(offset * 1_000_000_000) + offset_ns
+        
+        # Валидируем offset
+        if abs(total_offset_ns) > 1_000_000_000:  # ±1 секунда
+            return jsonify({'success': False, 'error': f'Offset {total_offset_ns} нс выходит за допустимые пределы (±1 с)'})
+        
+        # Для ts2phc нужен интерфейс, получаем его из ptp_device
+        # Маппинг PTP устройств к интерфейсам
+        ptp_to_interface = {
+            '/dev/ptp0': 'enp3s0',
+            '/dev/ptp1': 'eno1', 
+            '/dev/ptp2': 'enp3s0'  # обычно ptp2 тоже относится к enp3s0
+        }
+        interface = ptp_to_interface.get(source_ptp, 'enp3s0')
+        success = nic_manager.start_ts2phc_sync(interface, target_ptp, offset_ns=total_offset_ns)
         if success:
-            return jsonify({'success': True, 'message': f'TS2PHC синхронизация запущена: {source_ptp} -> {target_ptp}'})
+            message = f'TS2PHC синхронизация запущена: {source_ptp} -> {target_ptp}'
+            if total_offset_ns != 0:
+                message += f' (задержка: {total_offset_ns} нс)'
+            return jsonify({'success': True, 'message': message})
         else:
             return jsonify({'success': False, 'error': 'Не удалось запустить TS2PHC синхронизацию'})
     except Exception as e:
@@ -471,6 +511,86 @@ def get_sync_status():
     try:
         status = nic_manager.get_sync_status()
         return jsonify({'success': True, 'data': status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/pps/read-events', methods=['POST'])
+def read_pps_events():
+    """API для чтения PPS событий с фильтрацией"""
+    try:
+        data = request.get_json()
+        ptp_device = data.get('ptp_device')
+        count = data.get('count', 5)
+        
+        if not ptp_device:
+            return jsonify({'success': False, 'error': 'Необходимо указать ptp_device'})
+        
+        events = timenic_manager.read_pps_events(ptp_device, count)
+        
+        return jsonify({
+            'success': True, 
+            'events': events,
+            'count': len(events),
+            'message': f'Прочитано {len(events)} отфильтрованных PPS событий'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/pps/start-monitoring', methods=['POST'])
+def start_pps_monitoring():
+    """API для запуска мониторинга PPS событий"""
+    try:
+        data = request.get_json()
+        ptp_device = data.get('ptp_device')
+        
+        if not ptp_device:
+            return jsonify({'success': False, 'error': 'Необходимо указать ptp_device'})
+        
+        success = timenic_manager.start_pps_monitoring(ptp_device)
+        
+        if success:
+            return jsonify({'success': True, 'message': f'Мониторинг PPS запущен для {ptp_device}'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось запустить мониторинг PPS'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/pps/stop-monitoring', methods=['POST'])
+def stop_pps_monitoring():
+    """API для остановки мониторинга PPS событий"""
+    try:
+        data = request.get_json()
+        ptp_device = data.get('ptp_device')
+        
+        if not ptp_device:
+            return jsonify({'success': False, 'error': 'Необходимо указать ptp_device'})
+        
+        success = timenic_manager.stop_pps_monitoring(ptp_device)
+        
+        if success:
+            return jsonify({'success': True, 'message': f'Мониторинг PPS остановлен для {ptp_device}'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось остановить мониторинг PPS'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/pps/statistics', methods=['GET'])
+def get_pps_statistics():
+    """API для получения статистики PPS мониторинга"""
+    try:
+        ptp_device = request.args.get('ptp_device')
+        
+        if ptp_device:
+            stats = timenic_manager.get_pps_statistics(ptp_device)
+            return jsonify({'success': True, 'statistics': stats})
+        else:
+            # Возвращаем статистику всех мониторов
+            all_stats = pps_manager.get_statistics()
+            return jsonify({'success': True, 'statistics': all_stats})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

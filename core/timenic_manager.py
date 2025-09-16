@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+# Импорт модуля фильтрации PPS событий
+from .pps_edge_filter import pps_manager, PPSEvent, PPSEventType
+
 
 class PPSMode(Enum):
     """Режимы работы PPS для TimeNIC"""
@@ -68,7 +71,7 @@ class TimeNICManager:
     """Менеджер для работы с TimeNIC картами"""
     
     def __init__(self):
-        self.timenic_list = []
+        self.timenics = []  # Исправлено: используем timenics вместо timenic_list
         self.ptp_devices = []
         self.logger = logging.getLogger(__name__)
         self._discover_timenics()
@@ -78,7 +81,7 @@ class TimeNICManager:
         """Обнаружение TimeNIC карт"""
         try:
             # Очищаем список перед новым обнаружением
-            self.timenic_list = []
+            self.timenics = []  # Исправлено: используем timenics вместо timenic_list
             
             # Получаем список всех сетевых интерфейсов
             interfaces = self._get_network_interfaces()
@@ -87,7 +90,7 @@ class TimeNICManager:
                 if self._is_timenic(interface):
                     timenic_info = self._get_timenic_info(interface)
                     if timenic_info:
-                        self.timenic_list.append(timenic_info)
+                        self.timenics.append(timenic_info)  # Исправлено: используем timenics
         except Exception as e:
             self.logger.error(f"Ошибка при обнаружении TimeNIC: {e}")
     
@@ -130,17 +133,17 @@ class TimeNICManager:
     def _is_timenic(self, interface: str) -> bool:
         """Проверка, является ли интерфейс TimeNIC картой"""
         try:
-            # Проверяем драйвер igc (Intel I226)
+            # Проверяем драйвер igc (Intel I226) или igb (Intel I210)
             driver_path = f"/sys/class/net/{interface}/device/driver"
             if os.path.exists(driver_path):
                 driver = os.path.basename(os.readlink(driver_path))
-                return "igc" in driver.lower()
+                return "igc" in driver.lower() or "igb" in driver.lower()
             
             # Проверяем через ethtool
             result = subprocess.run(["ethtool", "-i", interface], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
-                return "igc" in result.stdout.lower()
+                return "igc" in result.stdout.lower() or "igb" in result.stdout.lower()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception):
             pass
         return False
@@ -444,11 +447,11 @@ class TimeNICManager:
     
     def get_all_timenics(self) -> List[TimeNICInfo]:
         """Получение списка всех TimeNIC карт"""
-        return self.timenic_list
+        return self.timenics
     
     def get_timenic_by_name(self, name: str) -> Optional[TimeNICInfo]:
         """Получение TimeNIC карты по имени"""
-        for timenic in self.timenic_list:
+        for timenic in self.timenics:
             if timenic.name == name:
                 return timenic
         return None
@@ -523,12 +526,27 @@ class TimeNICManager:
             return False
     
     def _enable_pps_input(self, ptp_device: str) -> bool:
-        """Включение PPS входа (SMA2/SDP1)"""
+        """Включение PPS входа (SMA2/SDP1) с настройкой фронта"""
         try:
             # Настраиваем SDP1 как входной пин для внешних временных меток
             # Согласно гайду: -L1,1 где 1 - индекс SDP1, 1 - функция EXTTS
             subprocess.run(["testptp", "-d", ptp_device, "-L1,1"], check=True)
-            self.logger.info(f"PPS вход включен на {ptp_device} (SMA2/SDP1)")
+            
+            # Дополнительно настраиваем для использования только восходящего фронта
+            # Это помогает избежать двойных событий от заднего фронта
+            try:
+                # Проверяем текущую конфигурацию
+                result = subprocess.run(["testptp", "-d", ptp_device, "-l"], 
+                                      capture_output=True, text=True, check=True)
+                self.logger.info(f"Текущая конфигурация PPS: {result.stdout}")
+                
+                # Если доступно, настраиваем фронт через sysfs
+                self._configure_pps_edge_detection(ptp_device)
+                
+            except Exception as edge_e:
+                self.logger.warning(f"Не удалось настроить фронт PPS: {edge_e}")
+            
+            self.logger.info(f"PPS вход включен на {ptp_device} (SMA2/SDP1) с настройкой фронта")
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при включении PPS входа: {e}")
@@ -561,9 +579,146 @@ class TimeNICManager:
             return False
         return False
     
-    def start_phc_synchronization(self, interface: str) -> bool:
-        """Запуск синхронизации PHC по внешнему PPS"""
+    def _configure_pps_edge_detection(self, ptp_device: str) -> bool:
+        """Настройка детекции фронтов PPS для избежания двойных событий"""
         try:
+            # Пытаемся найти sysfs интерфейс для настройки фронтов
+            # Это зависит от конкретной реализации драйвера
+            ptp_num = ptp_device.split('/dev/ptp')[1] if '/dev/ptp' in ptp_device else '0'
+            
+            # Возможные пути для настройки фронтов
+            edge_paths = [
+                f"/sys/class/ptp/ptp{ptp_num}/extts_flags",
+                f"/sys/class/ptp/ptp{ptp_num}/pin_config",
+                f"/sys/class/ptp/ptp{ptp_num}/extts_enable"
+            ]
+            
+            for path in edge_paths:
+                if os.path.exists(path):
+                    try:
+                        # Пытаемся установить флаг для восходящего фронта
+                        with open(path, 'w') as f:
+                            f.write('1')  # RISING_EDGE
+                        self.logger.info(f"Настроен восходящий фронт PPS через {path}")
+                        return True
+                    except Exception as e:
+                        self.logger.debug(f"Не удалось настроить {path}: {e}")
+                        continue
+            
+            # Альтернативный способ через testptp
+            try:
+                # Некоторые версии testptp поддерживают настройку фронтов
+                result = subprocess.run(
+                    ["testptp", "-d", ptp_device, "-L1,1", "-E1"],  # -E1 для восходящего фронта
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    self.logger.info("Настроен восходящий фронт PPS через testptp")
+                    return True
+            except Exception as e:
+                self.logger.debug(f"testptp настройка фронта не поддерживается: {e}")
+            
+            self.logger.warning("Не удалось настроить фронт PPS - возможны двойные события")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при настройке фронтов PPS: {e}")
+            return False
+    
+    def start_pps_monitoring(self, ptp_device: str, callback=None) -> bool:
+        """Запуск мониторинга PPS событий в реальном времени с фильтрацией
+        
+        Args:
+            ptp_device: PTP устройство
+            callback: Функция обратного вызова для обработки событий
+            
+        Returns:
+            True если мониторинг запущен успешно
+        """
+        try:
+            # Создаем монитор если его нет
+            if ptp_device not in pps_manager.monitors:
+                monitor = pps_manager.create_monitor(ptp_device, pin_index=1)
+            else:
+                monitor = pps_manager.monitors[ptp_device]
+            
+            # Запускаем мониторинг
+            monitor.start_monitoring(callback)
+            self.logger.info(f"Запущен мониторинг PPS событий для {ptp_device}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при запуске мониторинга PPS: {e}")
+            return False
+    
+    def stop_pps_monitoring(self, ptp_device: str) -> bool:
+        """Остановка мониторинга PPS событий
+        
+        Args:
+            ptp_device: PTP устройство
+            
+        Returns:
+            True если мониторинг остановлен успешно
+        """
+        try:
+            pps_manager.stop_monitoring(ptp_device)
+            self.logger.info(f"Остановлен мониторинг PPS событий для {ptp_device}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при остановке мониторинга PPS: {e}")
+            return False
+    
+    def get_pps_statistics(self, ptp_device: str) -> Dict[str, Any]:
+        """Получение статистики PPS мониторинга
+        
+        Args:
+            ptp_device: PTP устройство
+            
+        Returns:
+            Словарь со статистикой
+        """
+        try:
+            if ptp_device in pps_manager.monitors:
+                return pps_manager.monitors[ptp_device].get_statistics()
+            else:
+                return {'error': 'Монитор не найден'}
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении статистики PPS: {e}")
+            return {'error': str(e)}
+    
+    def _validate_offset(self, offset_ns: int) -> bool:
+        """Валидация значения offset
+        
+        Args:
+            offset_ns: Задержка в наносекундах
+            
+        Returns:
+            True если значение валидно
+        """
+        # Ограничиваем offset разумными пределами: ±1 секунда
+        MAX_OFFSET_NS = 1_000_000_000  # 1 секунда
+        MIN_OFFSET_NS = -1_000_000_000  # -1 секунда
+        
+        if offset_ns < MIN_OFFSET_NS or offset_ns > MAX_OFFSET_NS:
+            self.logger.error(f"Offset {offset_ns} нс выходит за допустимые пределы (±1 с)")
+            return False
+        
+        return True
+
+    def start_phc_synchronization(self, interface: str, offset_ns: int = 0) -> bool:
+        """Запуск синхронизации PHC по внешнему PPS с настраиваемой задержкой
+        
+        Args:
+            interface: Имя интерфейса TimeNIC
+            offset_ns: Задержка в наносекундах (положительная или отрицательная)
+        """
+        try:
+            # Валидируем offset
+            if not self._validate_offset(offset_ns):
+                return False
+            
             timenic = self.get_timenic_by_name(interface)
             if not timenic or not timenic.ptp_device:
                 return False
@@ -577,6 +732,11 @@ class TimeNICManager:
                 "-m",  # Вывод логов в консоль
                 "-l", "7"  # Уровень детализации логов
             ]
+            
+            # Добавляем offset если указан
+            if offset_ns != 0:
+                cmd.extend(["--ts2phc.offset", str(offset_ns)])
+                self.logger.info(f"Применяется задержка {offset_ns} нс для {interface}")
             
             # Запускаем в фоне
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -644,44 +804,59 @@ class TimeNICManager:
             return False
     
     def read_pps_events(self, ptp_device: str, count: int = 5) -> List[Dict[str, Any]]:
-        """Чтение PPS событий с внешнего источника
+        """Чтение PPS событий с внешнего источника с автоматической фильтрацией
         
         Args:
             ptp_device: PTP устройство (например, /dev/ptp0)
             count: Количество событий для чтения
             
         Returns:
-            Список событий с временными метками
+            Список отфильтрованных событий с временными метками
         """
         try:
-            # Читаем события используя testptp -e
-            result = subprocess.run(
-                ["testptp", "-d", ptp_device, "-e", str(count)],
-                capture_output=True, text=True, timeout=count + 2
-            )
+            # Создаем монитор если его нет
+            if ptp_device not in pps_manager.monitors:
+                monitor = pps_manager.create_monitor(ptp_device, pin_index=1)
+            else:
+                monitor = pps_manager.monitors[ptp_device]
             
-            if result.returncode != 0:
-                self.logger.error(f"Ошибка чтения PPS событий: {result.stderr}")
-                return []
+            # Читаем события с фильтрацией
+            filtered_events = []
+            attempts = 0
+            max_attempts = count * 3  # Учитываем возможные двойные события
             
-            events = []
-            for line in result.stdout.split('\n'):
-                if 'event' in line and 'index' in line:
-                    # Парсим строку события
-                    # Пример: event index 1 at 1234567890.123456789
-                    parts = line.split()
-                    if len(parts) >= 6:
-                        event = {
-                            'index': int(parts[2]),
-                            'timestamp': parts[4]
-                        }
-                        events.append(event)
+            while len(filtered_events) < count and attempts < max_attempts:
+                # Читаем сырые события
+                raw_events = monitor._read_pps_events(count=count, timeout=2)
+                
+                for raw_event in raw_events:
+                    if len(filtered_events) >= count:
+                        break
+                    
+                    # Парсим и фильтруем событие
+                    parsed_event = monitor._parse_event(raw_event)
+                    if parsed_event:
+                        filtered_event = monitor.filter.filter_event(parsed_event)
+                        if filtered_event:
+                            filtered_events.append({
+                                'index': filtered_event.pin_index,
+                                'timestamp': str(filtered_event.timestamp),
+                                'event_type': filtered_event.event_type.value,
+                                'raw_data': filtered_event.raw_data
+                            })
+                
+                attempts += 1
+                if len(filtered_events) < count:
+                    time.sleep(0.1)  # Небольшая задержка между попытками
             
-            return events
+            # Логируем статистику фильтрации
+            stats = monitor.get_statistics()
+            if stats['total_events'] > 0:
+                self.logger.info(f"PPS фильтрация: {stats['valid_events']}/{stats['total_events']} событий прошли фильтр "
+                               f"({stats['filter_rate']:.1f}% отфильтровано)")
             
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            self.logger.warning(f"Таймаут при чтении {count} PPS событий: {e}")
-            return []
+            return filtered_events
+            
         except Exception as e:
             self.logger.error(f"Ошибка при чтении PPS событий: {e}")
             return []
@@ -708,23 +883,96 @@ class TimeNICManager:
             self.logger.error(f"Ошибка при установке периода PPS: {e}")
             return False
     
-    def sync_phc_to_system_time(self, interface: str) -> bool:
-        """Синхронизация PHC с системным временем
+    def sync_phc_to_system_time(self, interface: str, offset_ns: int = 0) -> bool:
+        """Синхронизация PHC с системным временем с настраиваемой задержкой
         
-        Использует phc_ctl для установки текущего системного времени в PHC
+        Args:
+            interface: Имя интерфейса TimeNIC
+            offset_ns: Задержка в наносекундах (положительная или отрицательная)
         """
         try:
+            # Валидируем offset
+            if not self._validate_offset(offset_ns):
+                return False
+            
             # Используем phc_ctl "set;" adj 37 согласно гайду
-            subprocess.run(
-                ["phc_ctl", interface, "set;", "adj", "37"],
-                check=True
-            )
-            self.logger.info(f"PHC синхронизирован с системным временем на {interface}")
+            cmd = ["phc_ctl", interface, "set;", "adj", "37"]
+            
+            # Если указана задержка, применяем её
+            if offset_ns != 0:
+                # phc_ctl не поддерживает offset напрямую, поэтому используем adjtimex
+                # Сначала устанавливаем время, затем корректируем
+                subprocess.run(cmd, check=True)
+                
+                # Применяем offset через adjtimex
+                offset_sec = offset_ns / 1_000_000_000.0
+                adj_cmd = ["phc_ctl", interface, "adj", str(int(offset_sec * 1_000_000))]  # в микросекундах
+                subprocess.run(adj_cmd, check=True)
+                
+                self.logger.info(f"PHC синхронизирован с системным временем на {interface} с задержкой {offset_ns} нс")
+            else:
+                subprocess.run(cmd, check=True)
+                self.logger.info(f"PHC синхронизирован с системным временем на {interface}")
+            
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             self.logger.error(f"Ошибка при синхронизации PHC: {e}")
             return False
     
+    def start_phc_to_phc_sync(self, source_ptp: str, target_ptp: str, offset_ns: int = 0, rate: float = 0.0) -> bool:
+        """Запуск синхронизации одного PHC с другим с настраиваемой задержкой
+        
+        Args:
+            source_ptp: Исходное PTP устройство (например, /dev/ptp2)
+            target_ptp: Целевое PTP устройство (например, /dev/ptp0)
+            offset_ns: Задержка в наносекундах (положительная или отрицательная)
+            rate: Скорость коррекции (0.0 = автоматическая)
+        """
+        try:
+            # Валидируем offset
+            if not self._validate_offset(offset_ns):
+                return False
+            
+            # Валидируем rate
+            if rate < 0.0 or rate > 1.0:
+                self.logger.error(f"Скорость коррекции {rate} должна быть в диапазоне 0.0-1.0")
+                return False
+            
+            # Проверяем доступность устройств
+            if not os.path.exists(source_ptp) or not os.path.exists(target_ptp):
+                self.logger.error(f"PTP устройства недоступны: {source_ptp}, {target_ptp}")
+                return False
+            
+            # Запускаем phc2sys для синхронизации между PHC
+            cmd = [
+                "phc2sys",
+                "-s", source_ptp,  # источник
+                "-c", target_ptp,  # цель
+                "-O", "0",         # offset в секундах
+                "-R", "16",        # скорость коррекции
+                "-m"               # вывод логов в консоль
+            ]
+            
+            # Добавляем offset если указан
+            if offset_ns != 0:
+                offset_sec = offset_ns / 1_000_000_000.0
+                cmd[4] = str(offset_sec)  # заменяем "-O", "0" на "-O", str(offset_sec)
+                self.logger.info(f"Применяется задержка {offset_ns} нс ({offset_sec:.9f} с)")
+            
+            # Добавляем скорость коррекции если указана
+            if rate != 0.0:
+                cmd[6] = str(rate)  # заменяем "-R", "16" на "-R", str(rate)
+                self.logger.info(f"Скорость коррекции: {rate}")
+            
+            # Запускаем в фоне
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.logger.info(f"Запущена синхронизация PHC: {source_ptp} -> {target_ptp}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при запуске синхронизации PHC: {e}")
+            return False
+
     def get_statistics(self, interface: str) -> Dict[str, Any]:
         """Получение статистики TimeNIC карты"""
         try:
