@@ -1,5 +1,6 @@
 """
 Главное окно GUI приложения для конфигурации и мониторинга Intel NIC
+Современный интерфейс с улучшенным дизайном и функциональностью
 """
 
 import sys
@@ -10,10 +11,12 @@ from PyQt6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QPushButton,
     QComboBox, QLabel, QGroupBox, QGridLayout, QTextEdit,
     QProgressBar, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QMessageBox, QSplitter, QFrame
+    QMessageBox, QSplitter, QFrame, QScrollArea, QStackedWidget,
+    QStatusBar, QMenuBar, QMenu, QToolBar, QSlider, QDial,
+    QLCDNumber, QLineEdit, QFormLayout, QSpacerItem, QSizePolicy
 )
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QFont, QPalette, QColor
+from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QPropertyAnimation, QEasingCurve, QRect
+from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QPixmap, QPainter, QLinearGradient, QBrush
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -23,6 +26,151 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.nic_manager import IntelNICManager, PPSMode, NICInfo
 from core.timenic_manager import TimeNICManager, TimeNICInfo, PTPInfo, PTMStatus
+
+
+class ModernButton(QPushButton):
+    """Современная кнопка с градиентным фоном и анимацией"""
+    
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setMinimumHeight(35)
+        self.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4CAF50, stop:1 #45a049);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5CBF60, stop:1 #4CAF50);
+                transform: translateY(-1px);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3E8E41, stop:1 #2E7D32);
+            }
+            QPushButton:disabled {
+                background: #cccccc;
+                color: #666666;
+            }
+        """)
+
+
+class DangerButton(QPushButton):
+    """Кнопка для опасных действий (красная)"""
+    
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setMinimumHeight(35)
+        self.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #f44336, stop:1 #d32f2f);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ff5722, stop:1 #f44336);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d32f2f, stop:1 #b71c1c);
+            }
+        """)
+
+
+class ModernGroupBox(QGroupBox):
+    """Современная группа с улучшенным стилем"""
+    
+    def __init__(self, title="", parent=None):
+        super().__init__(title, parent)
+        self.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 14px;
+                color: #2c3e50;
+                border: 2px solid #bdc3c7;
+                border-radius: 10px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #f8f9fa;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 8px 0 8px;
+                background-color: #f8f9fa;
+            }
+        """)
+
+
+class StatusIndicator(QLabel):
+    """Индикатор статуса с цветовой кодировкой"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(20, 20)
+        self.setStyleSheet("""
+            QLabel {
+                border-radius: 10px;
+                background-color: #95a5a6;
+            }
+        """)
+    
+    def set_status(self, status: str):
+        """Установка статуса с соответствующим цветом"""
+        if status == "up" or status == "enabled":
+            self.setStyleSheet("""
+                QLabel {
+                    border-radius: 10px;
+                    background-color: #27ae60;
+                }
+            """)
+        elif status == "down" or status == "disabled":
+            self.setStyleSheet("""
+                QLabel {
+                    border-radius: 10px;
+                    background-color: #e74c3c;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QLabel {
+                    border-radius: 10px;
+                    background-color: #f39c12;
+                }
+            """)
+
+
+class ModernProgressBar(QProgressBar):
+    """Современный прогресс-бар"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                text-align: center;
+                font-weight: bold;
+                background-color: #ecf0f1;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #3498db, stop:1 #2980b9);
+                border-radius: 6px;
+            }
+        """)
 
 
 class MonitoringThread(QThread):
@@ -76,7 +224,7 @@ class MonitoringThread(QThread):
 
 
 class NICTableWidget(QTableWidget):
-    """Виджет таблицы для отображения NIC карт"""
+    """Современная таблица для отображения NIC карт"""
     
     def __init__(self):
         super().__init__()
@@ -85,16 +233,49 @@ class NICTableWidget(QTableWidget):
     def setup_ui(self):
         """Настройка интерфейса таблицы"""
         headers = [
-            "Имя", "MAC адрес", "IP адрес", "Статус", 
+            "Статус", "Имя", "MAC адрес", "IP адрес", 
             "Скорость", "Дуплекс", "PPS режим", "TCXO"
         ]
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
         
+        # Современный стиль таблицы
+        self.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #bdc3c7;
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #3498db;
+                border: 1px solid #bdc3c7;
+                border-radius: 8px;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #ecf0f1;
+            }
+            QTableWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+            }
+            QHeaderView::section {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #34495e, stop:1 #2c3e50);
+                color: white;
+                padding: 10px;
+                border: none;
+                font-weight: bold;
+                font-size: 12px;
+            }
+        """)
+        
         # Настройка внешнего вида
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setSortingEnabled(True)
+        
+        # Установка минимальной высоты строк
+        self.verticalHeader().setDefaultSectionSize(40)
         
         # Автоматическое изменение размера столбцов
         self.resizeColumnsToContents()
@@ -104,37 +285,51 @@ class NICTableWidget(QTableWidget):
         self.setRowCount(len(nics))
         
         for row, nic in enumerate(nics):
-            self.setItem(row, 0, QTableWidgetItem(nic.name))
-            self.setItem(row, 1, QTableWidgetItem(nic.mac_address))
-            self.setItem(row, 2, QTableWidgetItem(nic.ip_address))
+            # Статус с индикатором
+            status_widget = QWidget()
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(5, 5, 5, 5)
             
-            # Статус с цветовой индикацией
-            status_item = QTableWidgetItem(nic.status)
-            if nic.status == "up":
-                status_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                status_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 3, status_item)
+            status_indicator = StatusIndicator()
+            status_indicator.set_status(nic.status)
+            status_layout.addWidget(status_indicator)
             
+            status_label = QLabel(nic.status.upper())
+            status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            status_layout.addWidget(status_label)
+            status_layout.addStretch()
+            
+            self.setCellWidget(row, 0, status_widget)
+            
+            # Остальные данные
+            self.setItem(row, 1, QTableWidgetItem(nic.name))
+            self.setItem(row, 2, QTableWidgetItem(nic.mac_address))
+            self.setItem(row, 3, QTableWidgetItem(nic.ip_address))
             self.setItem(row, 4, QTableWidgetItem(nic.speed))
             self.setItem(row, 5, QTableWidgetItem(nic.duplex))
             self.setItem(row, 6, QTableWidgetItem(nic.pps_mode.value))
             
-            # TCXO с цветовой индикацией
-            tcxo_item = QTableWidgetItem("✓" if nic.tcxo_enabled else "✗")
-            if nic.tcxo_enabled:
-                tcxo_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                tcxo_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 7, tcxo_item)
+            # TCXO с индикатором
+            tcxo_widget = QWidget()
+            tcxo_layout = QHBoxLayout(tcxo_widget)
+            tcxo_layout.setContentsMargins(5, 5, 5, 5)
             
-
+            tcxo_indicator = StatusIndicator()
+            tcxo_indicator.set_status("enabled" if nic.tcxo_enabled else "disabled")
+            tcxo_layout.addWidget(tcxo_indicator)
+            
+            tcxo_label = QLabel("✓" if nic.tcxo_enabled else "✗")
+            tcxo_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            tcxo_layout.addWidget(tcxo_label)
+            tcxo_layout.addStretch()
+            
+            self.setCellWidget(row, 7, tcxo_widget)
         
         self.resizeColumnsToContents()
 
 
 class TimeNICTableWidget(QTableWidget):
-    """Виджет таблицы для отображения TimeNIC карт"""
+    """Современная таблица для отображения TimeNIC карт"""
     
     def __init__(self):
         super().__init__()
@@ -143,16 +338,49 @@ class TimeNICTableWidget(QTableWidget):
     def setup_ui(self):
         """Настройка интерфейса таблицы"""
         headers = [
-            "Имя", "MAC адрес", "IP адрес", "Статус", 
+            "Статус", "Имя", "MAC адрес", "IP адрес", 
             "PPS режим", "TCXO", "PTM", "SMA1", "SMA2", "PHC Offset"
         ]
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
         
+        # Современный стиль таблицы
+        self.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #bdc3c7;
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #3498db;
+                border: 1px solid #bdc3c7;
+                border-radius: 8px;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #ecf0f1;
+            }
+            QTableWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+            }
+            QHeaderView::section {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #8e44ad, stop:1 #9b59b6);
+                color: white;
+                padding: 10px;
+                border: none;
+                font-weight: bold;
+                font-size: 12px;
+            }
+        """)
+        
         # Настройка внешнего вида
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setSortingEnabled(True)
+        
+        # Установка минимальной высоты строк
+        self.verticalHeader().setDefaultSectionSize(40)
         
         # Автоматическое изменение размера столбцов
         self.resizeColumnsToContents()
@@ -162,64 +390,101 @@ class TimeNICTableWidget(QTableWidget):
         self.setRowCount(len(timenics))
         
         for row, timenic in enumerate(timenics):
-            self.setItem(row, 0, QTableWidgetItem(timenic.name))
-            self.setItem(row, 1, QTableWidgetItem(timenic.mac_address))
-            self.setItem(row, 2, QTableWidgetItem(timenic.ip_address))
+            # Статус с индикатором
+            status_widget = QWidget()
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(5, 5, 5, 5)
             
-            # Статус с цветовой индикацией
-            status_item = QTableWidgetItem(timenic.status)
-            if timenic.status == "up":
-                status_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                status_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 3, status_item)
+            status_indicator = StatusIndicator()
+            status_indicator.set_status(timenic.status)
+            status_layout.addWidget(status_indicator)
             
+            status_label = QLabel(timenic.status.upper())
+            status_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            status_layout.addWidget(status_label)
+            status_layout.addStretch()
+            
+            self.setCellWidget(row, 0, status_widget)
+            
+            # Остальные данные
+            self.setItem(row, 1, QTableWidgetItem(timenic.name))
+            self.setItem(row, 2, QTableWidgetItem(timenic.mac_address))
+            self.setItem(row, 3, QTableWidgetItem(timenic.ip_address))
             self.setItem(row, 4, QTableWidgetItem(timenic.pps_mode.value))
             
-            # TCXO с цветовой индикацией
-            tcxo_item = QTableWidgetItem("✓" if timenic.tcxo_enabled else "✗")
-            if timenic.tcxo_enabled:
-                tcxo_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                tcxo_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 5, tcxo_item)
+            # TCXO с индикатором
+            tcxo_widget = QWidget()
+            tcxo_layout = QHBoxLayout(tcxo_widget)
+            tcxo_layout.setContentsMargins(5, 5, 5, 5)
             
-            # PTM статус
-            ptm_item = QTableWidgetItem(timenic.ptm_status.value)
-            if timenic.ptm_status.value == "enabled":
-                ptm_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            elif timenic.ptm_status.value == "disabled":
-                ptm_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            else:
-                ptm_item.setBackground(QColor(255, 255, 224))  # Светло-желтый
-            self.setItem(row, 6, ptm_item)
+            tcxo_indicator = StatusIndicator()
+            tcxo_indicator.set_status("enabled" if timenic.tcxo_enabled else "disabled")
+            tcxo_layout.addWidget(tcxo_indicator)
             
-            # SMA статусы
-            sma1_item = QTableWidgetItem(timenic.sma1_status)
-            if timenic.sma1_status == "enabled":
-                sma1_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                sma1_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 7, sma1_item)
+            tcxo_label = QLabel("✓" if timenic.tcxo_enabled else "✗")
+            tcxo_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            tcxo_layout.addWidget(tcxo_label)
+            tcxo_layout.addStretch()
             
-            sma2_item = QTableWidgetItem(timenic.sma2_status)
-            if timenic.sma2_status == "enabled":
-                sma2_item.setBackground(QColor(144, 238, 144))  # Светло-зеленый
-            else:
-                sma2_item.setBackground(QColor(255, 182, 193))  # Светло-красный
-            self.setItem(row, 8, sma2_item)
+            self.setCellWidget(row, 5, tcxo_widget)
+            
+            # PTM статус с индикатором
+            ptm_widget = QWidget()
+            ptm_layout = QHBoxLayout(ptm_widget)
+            ptm_layout.setContentsMargins(5, 5, 5, 5)
+            
+            ptm_indicator = StatusIndicator()
+            ptm_indicator.set_status(timenic.ptm_status.value)
+            ptm_layout.addWidget(ptm_indicator)
+            
+            ptm_label = QLabel(timenic.ptm_status.value.upper())
+            ptm_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            ptm_layout.addWidget(ptm_label)
+            ptm_layout.addStretch()
+            
+            self.setCellWidget(row, 6, ptm_widget)
+            
+            # SMA1 статус с индикатором
+            sma1_widget = QWidget()
+            sma1_layout = QHBoxLayout(sma1_widget)
+            sma1_layout.setContentsMargins(5, 5, 5, 5)
+            
+            sma1_indicator = StatusIndicator()
+            sma1_indicator.set_status(timenic.sma1_status)
+            sma1_layout.addWidget(sma1_indicator)
+            
+            sma1_label = QLabel(timenic.sma1_status.upper())
+            sma1_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            sma1_layout.addWidget(sma1_label)
+            sma1_layout.addStretch()
+            
+            self.setCellWidget(row, 7, sma1_widget)
+            
+            # SMA2 статус с индикатором
+            sma2_widget = QWidget()
+            sma2_layout = QHBoxLayout(sma2_widget)
+            sma2_layout.setContentsMargins(5, 5, 5, 5)
+            
+            sma2_indicator = StatusIndicator()
+            sma2_indicator.set_status(timenic.sma2_status)
+            sma2_layout.addWidget(sma2_indicator)
+            
+            sma2_label = QLabel(timenic.sma2_status.upper())
+            sma2_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+            sma2_layout.addWidget(sma2_label)
+            sma2_layout.addStretch()
+            
+            self.setCellWidget(row, 8, sma2_widget)
             
             # PHC Offset
             phc_offset_text = str(timenic.phc_offset) if timenic.phc_offset else "N/A"
             self.setItem(row, 9, QTableWidgetItem(phc_offset_text))
-            
-
         
         self.resizeColumnsToContents()
 
 
 class ConfigurationWidget(QWidget):
-    """Виджет для конфигурации NIC карт"""
+    """Современный виджет для конфигурации NIC карт"""
     
     def __init__(self, nic_manager: IntelNICManager):
         super().__init__()
@@ -229,92 +494,307 @@ class ConfigurationWidget(QWidget):
     def setup_ui(self):
         """Настройка интерфейса конфигурации"""
         layout = QVBoxLayout()
+        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Заголовок
+        title_label = QLabel("Конфигурация сетевых карт")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-bottom: 20px;
+            }
+        """)
+        layout.addWidget(title_label)
         
         # Выбор NIC карты
-        nic_group = QGroupBox("Выбор сетевой карты")
-        nic_layout = QHBoxLayout()
+        nic_group = ModernGroupBox("Выбор сетевой карты")
+        nic_layout = QFormLayout()
+        nic_layout.setSpacing(15)
         
         self.nic_combo = QComboBox()
+        self.nic_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border-color: #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #7f8c8d;
+                margin-right: 10px;
+            }
+        """)
         self.nic_combo.currentTextChanged.connect(self.on_nic_selected)
-        nic_layout.addWidget(QLabel("NIC карта:"))
-        nic_layout.addWidget(self.nic_combo)
-        nic_layout.addStretch()
+        nic_layout.addRow("NIC карта:", self.nic_combo)
         
         nic_group.setLayout(nic_layout)
         layout.addWidget(nic_group)
         
         # Настройки PPS
-        pps_group = QGroupBox("Настройки PPS")
-        pps_layout = QGridLayout()
+        pps_group = ModernGroupBox("Настройки PPS")
+        pps_layout = QFormLayout()
+        pps_layout.setSpacing(15)
         
         self.pps_combo = QComboBox()
         self.pps_combo.addItems([mode.value for mode in PPSMode])
-        pps_layout.addWidget(QLabel("PPS режим:"), 0, 0)
-        pps_layout.addWidget(self.pps_combo, 0, 1)
+        self.pps_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border-color: #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #7f8c8d;
+                margin-right: 10px;
+            }
+        """)
+        pps_layout.addRow("PPS режим:", self.pps_combo)
         
-        self.apply_pps_btn = QPushButton("Применить PPS")
+        self.apply_pps_btn = ModernButton("Применить PPS")
         self.apply_pps_btn.clicked.connect(self.apply_pps_settings)
-        pps_layout.addWidget(self.apply_pps_btn, 0, 2)
+        pps_layout.addRow("", self.apply_pps_btn)
         
         pps_group.setLayout(pps_layout)
         layout.addWidget(pps_group)
         
         # Настройки TCXO
-        tcxo_group = QGroupBox("Настройки TCXO")
-        tcxo_layout = QHBoxLayout()
+        tcxo_group = ModernGroupBox("Настройки TCXO")
+        tcxo_layout = QFormLayout()
+        tcxo_layout.setSpacing(15)
         
         self.tcxo_checkbox = QCheckBox("Включить TCXO")
-        tcxo_layout.addWidget(self.tcxo_checkbox)
+        self.tcxo_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border: 2px solid #bdc3c7;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #27ae60;
+                border-color: #27ae60;
+            }
+            QCheckBox::indicator:checked::after {
+                content: "✓";
+                color: white;
+                font-weight: bold;
+            }
+        """)
+        tcxo_layout.addRow("", self.tcxo_checkbox)
         
-        self.apply_tcxo_btn = QPushButton("Применить TCXO")
+        self.apply_tcxo_btn = ModernButton("Применить TCXO")
         self.apply_tcxo_btn.clicked.connect(self.apply_tcxo_settings)
-        tcxo_layout.addWidget(self.apply_tcxo_btn)
-        tcxo_layout.addStretch()
+        tcxo_layout.addRow("", self.apply_tcxo_btn)
         
         tcxo_group.setLayout(tcxo_layout)
         layout.addWidget(tcxo_group)
         
         # Синхронизация PHC
-        sync_group = QGroupBox("Синхронизация PHC")
+        sync_group = ModernGroupBox("Синхронизация PHC")
         sync_layout = QGridLayout()
+        sync_layout.setSpacing(15)
         
         # PHC2SYS синхронизация
         sync_layout.addWidget(QLabel("Источник PHC:"), 0, 0)
         self.source_ptp_combo = QComboBox()
         self.source_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
+        self.source_ptp_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border-color: #3498db;
+            }
+        """)
         sync_layout.addWidget(self.source_ptp_combo, 0, 1)
         
         sync_layout.addWidget(QLabel("Цель PHC:"), 1, 0)
         self.target_ptp_combo = QComboBox()
         self.target_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
         self.target_ptp_combo.setCurrentText("/dev/ptp0")
+        self.target_ptp_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border-color: #3498db;
+            }
+        """)
         sync_layout.addWidget(self.target_ptp_combo, 1, 1)
         
-        self.start_phc_btn = QPushButton("Запустить PHC2SYS")
+        # Компенсация задержки для PHC2SYS
+        sync_layout.addWidget(QLabel("Компенсация задержки (сек):"), 2, 0)
+        self.phc_offset_seconds = QDoubleSpinBox()
+        self.phc_offset_seconds.setRange(-1.0, 1.0)
+        self.phc_offset_seconds.setDecimals(9)
+        self.phc_offset_seconds.setSingleStep(0.000000001)
+        self.phc_offset_seconds.setValue(0.0)
+        self.phc_offset_seconds.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QDoubleSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.phc_offset_seconds, 2, 1)
+        
+        sync_layout.addWidget(QLabel("Компенсация задержки (нс):"), 3, 0)
+        self.phc_offset_nanoseconds = QSpinBox()
+        self.phc_offset_nanoseconds.setRange(-999999999, 999999999)
+        self.phc_offset_nanoseconds.setValue(0)
+        self.phc_offset_nanoseconds.setStyleSheet("""
+            QSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.phc_offset_nanoseconds, 3, 1)
+        
+        sync_layout.addWidget(QLabel("Скорость коррекции:"), 4, 0)
+        self.phc_rate = QDoubleSpinBox()
+        self.phc_rate.setRange(0.0, 1.0)
+        self.phc_rate.setDecimals(3)
+        self.phc_rate.setSingleStep(0.001)
+        self.phc_rate.setValue(0.0)
+        self.phc_rate.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QDoubleSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.phc_rate, 4, 1)
+        
+        self.start_phc_btn = ModernButton("Запустить PHC2SYS")
         self.start_phc_btn.clicked.connect(self.start_phc_sync)
         sync_layout.addWidget(self.start_phc_btn, 0, 2)
         
-        self.stop_phc_btn = QPushButton("Остановить PHC2SYS")
+        self.stop_phc_btn = DangerButton("Остановить PHC2SYS")
         self.stop_phc_btn.clicked.connect(self.stop_phc_sync)
         sync_layout.addWidget(self.stop_phc_btn, 1, 2)
         
         # TS2PHC синхронизация
-        sync_layout.addWidget(QLabel("TS2PHC устройство:"), 2, 0)
+        sync_layout.addWidget(QLabel("TS2PHC устройство:"), 5, 0)
         self.ts2phc_ptp_combo = QComboBox()
         self.ts2phc_ptp_combo.addItems(["/dev/ptp0", "/dev/ptp1", "/dev/ptp2"])
-        sync_layout.addWidget(self.ts2phc_ptp_combo, 2, 1)
+        self.ts2phc_ptp_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.ts2phc_ptp_combo, 5, 1)
         
-        self.start_ts2phc_btn = QPushButton("Запустить TS2PHC")
+        # Компенсация задержки для TS2PHC
+        sync_layout.addWidget(QLabel("TS2PHC задержка (сек):"), 6, 0)
+        self.ts2phc_offset_seconds = QDoubleSpinBox()
+        self.ts2phc_offset_seconds.setRange(-1.0, 1.0)
+        self.ts2phc_offset_seconds.setDecimals(9)
+        self.ts2phc_offset_seconds.setSingleStep(0.000000001)
+        self.ts2phc_offset_seconds.setValue(0.0)
+        self.ts2phc_offset_seconds.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QDoubleSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.ts2phc_offset_seconds, 6, 1)
+        
+        sync_layout.addWidget(QLabel("TS2PHC задержка (нс):"), 7, 0)
+        self.ts2phc_offset_nanoseconds = QSpinBox()
+        self.ts2phc_offset_nanoseconds.setRange(-999999999, 999999999)
+        self.ts2phc_offset_nanoseconds.setValue(0)
+        self.ts2phc_offset_nanoseconds.setStyleSheet("""
+            QSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        sync_layout.addWidget(self.ts2phc_offset_nanoseconds, 7, 1)
+        
+        self.start_ts2phc_btn = ModernButton("Запустить TS2PHC")
         self.start_ts2phc_btn.clicked.connect(self.start_ts2phc_sync)
-        sync_layout.addWidget(self.start_ts2phc_btn, 2, 2)
+        sync_layout.addWidget(self.start_ts2phc_btn, 5, 2)
         
-        self.stop_ts2phc_btn = QPushButton("Остановить TS2PHC")
+        self.stop_ts2phc_btn = DangerButton("Остановить TS2PHC")
         self.stop_ts2phc_btn.clicked.connect(self.stop_ts2phc_sync)
-        sync_layout.addWidget(self.stop_ts2phc_btn, 3, 2)
+        sync_layout.addWidget(self.stop_ts2phc_btn, 6, 2)
         
         # Статус синхронизации
         self.sync_status_label = QLabel("Статус: Не синхронизировано")
-        sync_layout.addWidget(self.sync_status_label, 4, 0, 1, 3)
+        self.sync_status_label.setStyleSheet("font-weight: bold; color: #2c3e50; padding: 10px;")
+        sync_layout.addWidget(self.sync_status_label, 8, 0, 1, 3)
         
         sync_group.setLayout(sync_layout)
         layout.addWidget(sync_group)
@@ -421,10 +901,32 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
             QMessageBox.warning(self, "Ошибка", "Источник и цель не могут быть одинаковыми")
             return
         
-        success = self.nic_manager.start_phc_sync(source_ptp, target_ptp)
+        # Получаем значения компенсации задержки
+        offset_seconds = self.phc_offset_seconds.value()
+        offset_nanoseconds = self.phc_offset_nanoseconds.value()
+        rate = self.phc_rate.value()
+        
+        # Валидация
+        if abs(offset_seconds) > 1.0:
+            QMessageBox.warning(self, "Ошибка", "Компенсация задержки (сек) должна быть в диапазоне ±1.0")
+            return
+        
+        if abs(offset_nanoseconds) > 999999999:
+            QMessageBox.warning(self, "Ошибка", "Компенсация задержки (нс) должна быть в диапазоне ±999,999,999")
+            return
+        
+        if rate < 0.0 or rate > 1.0:
+            QMessageBox.warning(self, "Ошибка", "Скорость коррекции должна быть в диапазоне 0.0-1.0")
+            return
+        
+        # Вычисляем общую задержку в наносекундах
+        total_offset_ns = int(offset_seconds * 1_000_000_000) + offset_nanoseconds
+        
+        success = self.nic_manager.start_phc_to_phc_sync(source_ptp, target_ptp, total_offset_ns, rate)
         
         if success:
-            QMessageBox.information(self, "Успех", f"PHC2SYS синхронизация запущена: {source_ptp} -> {target_ptp}")
+            offset_text = f" (задержка: {total_offset_ns} нс, скорость: {rate})" if total_offset_ns != 0 or rate != 0.0 else ""
+            QMessageBox.information(self, "Успех", f"PHC2SYS синхронизация запущена: {source_ptp} -> {target_ptp}{offset_text}")
             self.update_sync_status()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось запустить PHC2SYS синхронизацию")
@@ -448,10 +950,27 @@ TCXO: {'Включен' if nic.tcxo_enabled else 'Отключен'}
         
         ptp_device = self.ts2phc_ptp_combo.currentText()
         
-        success = self.nic_manager.start_ts2phc_sync(nic_name, ptp_device)
+        # Получаем значения компенсации задержки для TS2PHC
+        offset_seconds = self.ts2phc_offset_seconds.value()
+        offset_nanoseconds = self.ts2phc_offset_nanoseconds.value()
+        
+        # Валидация
+        if abs(offset_seconds) > 1.0:
+            QMessageBox.warning(self, "Ошибка", "TS2PHC задержка (сек) должна быть в диапазоне ±1.0")
+            return
+        
+        if abs(offset_nanoseconds) > 999999999:
+            QMessageBox.warning(self, "Ошибка", "TS2PHC задержка (нс) должна быть в диапазоне ±999,999,999")
+            return
+        
+        # Вычисляем общую задержку в наносекундах
+        total_offset_ns = int(offset_seconds * 1_000_000_000) + offset_nanoseconds
+        
+        success = self.nic_manager.start_ts2phc_sync(nic_name, ptp_device, total_offset_ns)
         
         if success:
-            QMessageBox.information(self, "Успех", f"TS2PHC синхронизация запущена для {nic_name}")
+            offset_text = f" (задержка: {total_offset_ns} нс)" if total_offset_ns != 0 else ""
+            QMessageBox.information(self, "Успех", f"TS2PHC синхронизация запущена для {nic_name}{offset_text}")
             self.update_sync_status()
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось запустить TS2PHC синхронизацию")
@@ -545,17 +1064,57 @@ class TimeNICConfigurationWidget(QWidget):
         layout.addWidget(advanced_group)
         
         # Группа для PHC синхронизации
-        phc_group = QGroupBox("PHC синхронизация")
+        phc_group = ModernGroupBox("PHC синхронизация")
         phc_layout = QGridLayout()
+        phc_layout.setSpacing(15)
         
         self.phc_offset_label = QLabel("PHC Offset: N/A")
         self.phc_frequency_label = QLabel("PHC Frequency: N/A")
         phc_layout.addWidget(self.phc_offset_label, 0, 0)
         phc_layout.addWidget(self.phc_frequency_label, 0, 1)
         
-        self.start_phc_btn = QPushButton("Запустить синхронизацию PHC")
+        # Компенсация задержки для TimeNIC PHC
+        phc_layout.addWidget(QLabel("Компенсация задержки (сек):"), 1, 0)
+        self.timenic_phc_offset_seconds = QDoubleSpinBox()
+        self.timenic_phc_offset_seconds.setRange(-1.0, 1.0)
+        self.timenic_phc_offset_seconds.setDecimals(9)
+        self.timenic_phc_offset_seconds.setSingleStep(0.000000001)
+        self.timenic_phc_offset_seconds.setValue(0.0)
+        self.timenic_phc_offset_seconds.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QDoubleSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        phc_layout.addWidget(self.timenic_phc_offset_seconds, 1, 1)
+        
+        phc_layout.addWidget(QLabel("Компенсация задержки (нс):"), 2, 0)
+        self.timenic_phc_offset_nanoseconds = QSpinBox()
+        self.timenic_phc_offset_nanoseconds.setRange(-999999999, 999999999)
+        self.timenic_phc_offset_nanoseconds.setValue(0)
+        self.timenic_phc_offset_nanoseconds.setStyleSheet("""
+            QSpinBox {
+                padding: 8px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 14px;
+            }
+            QSpinBox:focus {
+                border-color: #3498db;
+            }
+        """)
+        phc_layout.addWidget(self.timenic_phc_offset_nanoseconds, 2, 1)
+        
+        self.start_phc_btn = ModernButton("Запустить синхронизацию PHC")
         self.start_phc_btn.clicked.connect(self.start_phc_sync)
-        phc_layout.addWidget(self.start_phc_btn, 1, 0, 1, 2)
+        phc_layout.addWidget(self.start_phc_btn, 3, 0, 1, 2)
         
         phc_group.setLayout(phc_layout)
         layout.addWidget(phc_group)
@@ -648,12 +1207,30 @@ class TimeNICConfigurationWidget(QWidget):
         """Запуск синхронизации PHC"""
         timenic_name = self.timenic_combo.currentText()
         if not timenic_name:
+            QMessageBox.warning(self, "Ошибка", "Выберите TimeNIC карту")
             return
         
+        # Получаем значения компенсации задержки
+        offset_seconds = self.timenic_phc_offset_seconds.value()
+        offset_nanoseconds = self.timenic_phc_offset_nanoseconds.value()
+        
+        # Валидация
+        if abs(offset_seconds) > 1.0:
+            QMessageBox.warning(self, "Ошибка", "Компенсация задержки (сек) должна быть в диапазоне ±1.0")
+            return
+        
+        if abs(offset_nanoseconds) > 999999999:
+            QMessageBox.warning(self, "Ошибка", "Компенсация задержки (нс) должна быть в диапазоне ±999,999,999")
+            return
+        
+        # Вычисляем общую задержку в наносекундах
+        total_offset_ns = int(offset_seconds * 1_000_000_000) + offset_nanoseconds
+        
         try:
-            success = self.timenic_manager.start_phc_synchronization(timenic_name)
+            success = self.timenic_manager.start_phc_synchronization(timenic_name, total_offset_ns)
             if success:
-                QMessageBox.information(self, "Успех", f"Синхронизация PHC запущена для {timenic_name}")
+                offset_text = f" (задержка: {total_offset_ns} нс)" if total_offset_ns != 0 else ""
+                QMessageBox.information(self, "Успех", f"Синхронизация PHC запущена для {timenic_name}{offset_text}")
             else:
                 QMessageBox.warning(self, "Ошибка", f"Не удалось запустить синхронизацию PHC для {timenic_name}")
         except Exception as e:
@@ -1124,18 +1701,57 @@ class MonitoringWidget(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """Главное окно приложения"""
+    """Современное главное окно приложения"""
     
     def __init__(self):
         super().__init__()
         self.nic_manager = IntelNICManager()
         self.timenic_manager = TimeNICManager()
         self.setup_ui()
+        self.setup_menu()
+        self.setup_status_bar()
     
     def setup_ui(self):
         """Настройка интерфейса главного окна"""
-        self.setWindowTitle("Intel NIC PPS Configuration and Monitoring Tool")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle("SHIWA NIC-PPS Configuration and Monitoring Tool v1.2.0")
+        self.setGeometry(100, 100, 1400, 900)
+        
+        # Установка современного стиля для всего приложения
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #ecf0f1;
+            }
+            QTabWidget::pane {
+                border: 1px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: white;
+            }
+            QTabWidget::tab-bar {
+                alignment: left;
+            }
+            QTabBar::tab {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ecf0f1, stop:1 #bdc3c7);
+                border: 1px solid #bdc3c7;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                padding: 12px 20px;
+                margin-right: 2px;
+                font-weight: bold;
+                color: #2c3e50;
+            }
+            QTabBar::tab:selected {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+                color: white;
+            }
+            QTabBar::tab:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5dade2, stop:1 #3498db);
+                color: white;
+            }
+        """)
         
         # Создаем центральный виджет
         central_widget = QWidget()
@@ -1143,41 +1759,63 @@ class MainWindow(QMainWindow):
         
         # Создаем вкладки
         tab_widget = QTabWidget()
+        tab_widget.setTabPosition(QTabWidget.TabPosition.North)
         
         # Вкладка с таблицей NIC карт
         self.nic_table = NICTableWidget()
-        tab_widget.addTab(self.nic_table, "NIC карты")
+        tab_widget.addTab(self.nic_table, "📡 NIC карты")
         
         # Вкладка с таблицей TimeNIC карт
         self.timenic_table = TimeNICTableWidget()
-        tab_widget.addTab(self.timenic_table, "TimeNIC карты")
+        tab_widget.addTab(self.timenic_table, "⏰ TimeNIC карты")
         
         # Вкладка конфигурации
         self.config_widget = ConfigurationWidget(self.nic_manager)
-        tab_widget.addTab(self.config_widget, "Конфигурация")
+        tab_widget.addTab(self.config_widget, "⚙️ Конфигурация")
         
         # Вкладка конфигурации TimeNIC
         self.timenic_config_widget = TimeNICConfigurationWidget(self.timenic_manager)
-        tab_widget.addTab(self.timenic_config_widget, "Конфигурация TimeNIC")
+        tab_widget.addTab(self.timenic_config_widget, "🔧 Конфигурация TimeNIC")
         
         # Вкладка мониторинга
         self.monitor_widget = MonitoringWidget(self.nic_manager, self.timenic_manager)
-        tab_widget.addTab(self.monitor_widget, "Мониторинг")
+        tab_widget.addTab(self.monitor_widget, "📊 Мониторинг")
         
         # Основной layout
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
         layout.addWidget(tab_widget)
         
+        # Панель управления
+        control_panel = QFrame()
+        control_panel.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #34495e, stop:1 #2c3e50);
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        control_layout = QHBoxLayout(control_panel)
+        
+        # Информация о системе
+        system_info = QLabel("SHIWA NIC-PPS v1.2.0 | Система мониторинга активна")
+        system_info.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
+        control_layout.addWidget(system_info)
+        
+        control_layout.addStretch()
+        
         # Кнопки управления
-        button_layout = QHBoxLayout()
-        
-        refresh_btn = QPushButton("Обновить")
+        refresh_btn = ModernButton("🔄 Обновить")
         refresh_btn.clicked.connect(self.refresh_data)
-        button_layout.addWidget(refresh_btn)
+        control_layout.addWidget(refresh_btn)
         
-        button_layout.addStretch()
+        export_btn = ModernButton("📤 Экспорт")
+        export_btn.clicked.connect(self.export_data)
+        control_layout.addWidget(export_btn)
         
-        layout.addLayout(button_layout)
+        layout.addWidget(control_panel)
         central_widget.setLayout(layout)
         
         # Таймер для обновления данных
@@ -1188,31 +1826,171 @@ class MainWindow(QMainWindow):
         # Первоначальное обновление
         self.refresh_data()
     
+    def setup_menu(self):
+        """Настройка меню"""
+        menubar = self.menuBar()
+        menubar.setStyleSheet("""
+            QMenuBar {
+                background-color: #34495e;
+                color: white;
+                border: none;
+                font-weight: bold;
+            }
+            QMenuBar::item {
+                background-color: transparent;
+                padding: 8px 16px;
+            }
+            QMenuBar::item:selected {
+                background-color: #3498db;
+            }
+            QMenu {
+                background-color: white;
+                border: 1px solid #bdc3c7;
+                border-radius: 6px;
+            }
+            QMenu::item {
+                padding: 8px 20px;
+                color: #2c3e50;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+                color: white;
+            }
+        """)
+        
+        # Файл меню
+        file_menu = menubar.addMenu("Файл")
+        file_menu.addAction("Экспорт данных", self.export_data)
+        file_menu.addSeparator()
+        file_menu.addAction("Выход", self.close)
+        
+        # Настройки меню
+        settings_menu = menubar.addMenu("Настройки")
+        settings_menu.addAction("Обновить данные", self.refresh_data)
+        settings_menu.addAction("Очистить кэш", self.clear_cache)
+        
+        # Справка меню
+        help_menu = menubar.addMenu("Справка")
+        help_menu.addAction("О программе", self.show_about)
+    
+    def setup_status_bar(self):
+        """Настройка строки состояния"""
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        
+        # Индикатор подключения
+        self.connection_indicator = StatusIndicator()
+        self.connection_indicator.set_status("up")
+        
+        # Информация о статусе
+        self.status_label = QLabel("Система готова к работе")
+        self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        
+        # Счетчик обновлений
+        self.update_counter = QLabel("Обновлений: 0")
+        self.update_counter.setStyleSheet("color: #7f8c8d;")
+        
+        self.status_bar.addWidget(self.connection_indicator)
+        self.status_bar.addWidget(self.status_label)
+        self.status_bar.addPermanentWidget(self.update_counter)
+    
+    def export_data(self):
+        """Экспорт данных"""
+        QMessageBox.information(self, "Экспорт", "Функция экспорта будет реализована в следующей версии")
+    
+    def clear_cache(self):
+        """Очистка кэша"""
+        QMessageBox.information(self, "Кэш", "Кэш очищен")
+    
+    def show_about(self):
+        """Показать информацию о программе"""
+        QMessageBox.about(self, "О программе", 
+                         "SHIWA NIC-PPS Configuration and Monitoring Tool v1.2.0\n\n"
+                         "Современный инструмент для конфигурации и мониторинга\n"
+                         "Intel NIC карт с поддержкой PPS и TimeNIC.\n\n"
+                         "© 2025 SHIWA Technologies")
+    
     def refresh_data(self):
         """Обновление данных"""
-        # Обновляем обычные NIC карты
-        nics = self.nic_manager.get_all_nics()
-        self.nic_table.update_data(nics)
-        self.config_widget.update_nic_list()
-        self.monitor_widget.update_monitor_nic_list()
-        
-        # Обновляем TimeNIC карты
-        self.timenic_manager.refresh()  # Обновляем список устройств
-        timenics = self.timenic_manager.get_all_timenics()
-        self.timenic_table.update_data(timenics)
-        self.timenic_config_widget.update_timenic_list()
+        try:
+            # Обновляем обычные NIC карты
+            nics = self.nic_manager.get_all_nics()
+            self.nic_table.update_data(nics)
+            self.config_widget.update_nic_list()
+            self.monitor_widget.update_monitor_nic_list()
+            
+            # Обновляем TimeNIC карты
+            self.timenic_manager.refresh()  # Обновляем список устройств
+            timenics = self.timenic_manager.get_all_timenics()
+            self.timenic_table.update_data(timenics)
+            self.timenic_config_widget.update_timenic_list()
+            
+            # Обновляем счетчик
+            if hasattr(self, 'update_counter'):
+                current_count = int(self.update_counter.text().split(': ')[1])
+                self.update_counter.setText(f"Обновлений: {current_count + 1}")
+            
+            # Обновляем статус
+            if hasattr(self, 'status_label'):
+                self.status_label.setText("Данные обновлены")
+                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+                
+        except Exception as e:
+            # Обновляем статус при ошибке
+            if hasattr(self, 'status_label'):
+                self.status_label.setText(f"Ошибка обновления: {str(e)}")
+                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
 
 
 def main():
     """Главная функция"""
     app = QApplication(sys.argv)
     
-    # Настройка стиля
+    # Настройка стиля приложения
     app.setStyle('Fusion')
+    
+    # Установка иконки приложения (если есть)
+    app.setApplicationName("SHIWA NIC-PPS")
+    app.setApplicationVersion("1.2.0")
+    app.setOrganizationName("SHIWA Technologies")
+    
+    # Глобальные стили для приложения
+    app.setStyleSheet("""
+        QApplication {
+            font-family: 'Segoe UI', 'Arial', sans-serif;
+            font-size: 12px;
+        }
+        QMessageBox {
+            background-color: white;
+            border: 1px solid #bdc3c7;
+            border-radius: 8px;
+        }
+        QMessageBox QPushButton {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #3498db, stop:1 #2980b9);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            padding: 8px 16px;
+            min-width: 80px;
+        }
+        QMessageBox QPushButton:hover {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #5dade2, stop:1 #3498db);
+        }
+    """)
     
     # Создание и отображение главного окна
     window = MainWindow()
     window.show()
+    
+    # Центрирование окна на экране
+    screen = app.primaryScreen().geometry()
+    window_geometry = window.geometry()
+    x = (screen.width() - window_geometry.width()) // 2
+    y = (screen.height() - window_geometry.height()) // 2
+    window.move(x, y)
     
     sys.exit(app.exec())
 

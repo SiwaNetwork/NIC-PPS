@@ -1244,27 +1244,28 @@ done
                 print(f"Скорость коррекции: {rate}")
             
             # Запускаем phc2sys для синхронизации между PHC
-            cmd = [
-                "phc2sys",
-                "-s", source_ptp,  # источник
-                "-c", target_ptp,  # цель
-                "-O", "0",         # offset в секундах
-                "-R", "16",        # скорость коррекции
-                "-m"               # вывод логов в консоль
-            ]
+            # Формируем команду правильно
+            cmd = ["phc2sys", "-s", source_ptp, "-c", target_ptp]
             
             # Добавляем offset если указан
             if offset_ns != 0:
                 offset_sec = offset_ns / 1_000_000_000.0
-                cmd[5] = str(offset_sec)  # заменяем "-O", "0" на "-O", str(offset_sec)
+                cmd.extend(["-O", str(offset_sec)])
                 print(f"Применяется задержка {offset_ns} нс ({offset_sec:.9f} с)")
+            else:
+                cmd.extend(["-O", "0"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:
-                cmd[7] = str(rate)  # заменяем "-R", "16" на "-R", str(rate)
+                cmd.extend(["-R", str(rate)])
                 print(f"Скорость коррекции: {rate}")
+            else:
+                cmd.extend(["-R", "16"])
+            
+            cmd.append("-m")  # вывод логов в консоль
             
             print(f"Выполняем команду: {' '.join(cmd)}")
+            print(f"Отладочная информация: cmd = {cmd}")
             
             # Запускаем в фоне
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

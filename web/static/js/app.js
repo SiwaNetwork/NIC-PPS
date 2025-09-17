@@ -1191,6 +1191,9 @@ function updatePtpDevicesList(devices) {
 function startPhcSync() {
     const sourcePtp = document.getElementById('sourcePtp').value;
     const targetPtp = document.getElementById('targetPtp').value;
+    const offsetSeconds = parseFloat(document.getElementById('offsetSeconds').value) || 0;
+    const offsetNanoseconds = parseInt(document.getElementById('offsetNanoseconds').value) || 0;
+    const syncRate = parseFloat(document.getElementById('syncRate').value) || 0;
     
     if (!sourcePtp || !targetPtp) {
         showAlert('Ошибка', 'Выберите источник и цель PTP');
@@ -1202,15 +1205,37 @@ function startPhcSync() {
         return;
     }
     
+    // Валидация offset
+    if (Math.abs(offsetSeconds) > 1) {
+        showAlert('Ошибка', 'Offset в секундах должен быть в диапазоне ±1.000000');
+        return;
+    }
+    
+    if (Math.abs(offsetNanoseconds) > 999999999) {
+        showAlert('Ошибка', 'Offset в наносекундах должен быть в диапазоне ±999,999,999');
+        return;
+    }
+    
+    // Валидация rate
+    if (syncRate < 0 || syncRate > 1) {
+        showAlert('Ошибка', 'Скорость коррекции должна быть в диапазоне 0.0-1.0');
+        return;
+    }
+    
+    const requestData = {
+        source_ptp: sourcePtp,
+        target_ptp: targetPtp,
+        offset: offsetSeconds,
+        offset_ns: offsetNanoseconds,
+        rate: syncRate
+    };
+    
     fetch('/api/sync/phc/start', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            source_ptp: sourcePtp,
-            target_ptp: targetPtp
-        })
+        body: JSON.stringify(requestData)
     })
     .then(response => response.json())
     .then(data => {
@@ -1248,21 +1273,38 @@ function stopPhcSync() {
 function startTs2phcSync() {
     const sourcePtp = document.getElementById('sourcePtp').value;
     const targetPtp = document.getElementById('targetPtp').value;
+    const offsetSeconds = parseFloat(document.getElementById('ts2phcOffsetSeconds').value) || 0;
+    const offsetNanoseconds = parseInt(document.getElementById('ts2phcOffsetNanoseconds').value) || 0;
     
     if (!sourcePtp || !targetPtp) {
         showAlert('Ошибка', 'Выберите источник и цель PTP');
         return;
     }
     
+    // Валидация offset
+    if (Math.abs(offsetSeconds) > 1) {
+        showAlert('Ошибка', 'Offset в секундах должен быть в диапазоне ±1.000000');
+        return;
+    }
+    
+    if (Math.abs(offsetNanoseconds) > 999999999) {
+        showAlert('Ошибка', 'Offset в наносекундах должен быть в диапазоне ±999,999,999');
+        return;
+    }
+    
+    const requestData = {
+        source_ptp: sourcePtp,
+        target_ptp: targetPtp,
+        offset: offsetSeconds,
+        offset_ns: offsetNanoseconds
+    };
+    
     fetch('/api/sync/ts2phc/start', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            source_ptp: sourcePtp,
-            target_ptp: targetPtp
-        })
+        body: JSON.stringify(requestData)
     })
     .then(response => response.json())
     .then(data => {

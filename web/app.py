@@ -414,6 +414,9 @@ def start_phc_sync():
         # Конвертируем offset в наносекунды
         total_offset_ns = int(offset * 1_000_000_000) + offset_ns
         
+        # Отладочная информация
+        print(f"DEBUG: offset={offset}, offset_ns={offset_ns}, total_offset_ns={total_offset_ns}, rate={rate}")
+        
         # Валидируем offset
         if abs(total_offset_ns) > 1_000_000_000:  # ±1 секунда
             return jsonify({'success': False, 'error': f'Offset {total_offset_ns} нс выходит за допустимые пределы (±1 с)'})
