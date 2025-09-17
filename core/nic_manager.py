@@ -1099,16 +1099,22 @@ done
             
             # Применяем offset через phc_ctl перед запуском ts2phc
             if offset_ns != 0:
-                offset_sec = offset_ns / 1_000_000_000.0
-                adj_cmd = ["phc_ctl", interface, "adj", str(int(offset_sec * 1_000_000))]  # в микросекундах
-                print(f"Применяем offset {offset_ns} нс через phc_ctl: {' '.join(adj_cmd)}")
+                print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
                 try:
-                    subprocess.run(adj_cmd, check=True, timeout=5)
-                    print(f"✅ Offset {offset_ns} нс применен успешно")
-                except subprocess.CalledProcessError as e:
-                    print(f"⚠️ Предупреждение при применении offset: {e}")
-                except subprocess.TimeoutExpired:
-                    print(f"⚠️ Таймаут при применении offset")
+                    # phc_ctl adj принимает offset в секундах
+                    offset_sec = offset_ns / 1_000_000_000.0
+                    adj_cmd = ["sudo", "-n", "phc_ctl", ptp_device, "--", "adj", str(offset_sec)]
+                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ Компенсация {offset_ns} нс применена к {ptp_device}")
+                    else:
+                        print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                        print("Продолжаем без предварительной компенсации...")
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                    print("Продолжаем без предварительной компенсации...")
             
             print(f"Выполняем команду: {' '.join(ts2phc_cmd)}")
             
@@ -1243,17 +1249,31 @@ done
             if rate != 0.0:
                 print(f"Скорость коррекции: {rate}")
             
-            # Запускаем phc2sys для синхронизации между PHC
-            # Формируем команду правильно
+            # Применяем компенсацию через phc_ctl если offset не равен 0
+            if offset_ns != 0:
+                print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
+                try:
+                    # phc_ctl adj принимает offset в секундах
+                    offset_sec = offset_ns / 1_000_000_000.0
+                    adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
+                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
+                    else:
+                        print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                        print("Продолжаем без предварительной компенсации...")
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                    print("Продолжаем без предварительной компенсации...")
+
+            # Строим команду phc2sys
             cmd = ["phc2sys", "-s", source_ptp, "-c", target_ptp]
             
-            # Добавляем offset если указан
-            if offset_ns != 0:
-                offset_sec = offset_ns / 1_000_000_000.0
-                cmd.extend(["-O", str(offset_sec)])
-                print(f"Применяется задержка {offset_ns} нс ({offset_sec:.9f} с)")
-            else:
-                cmd.extend(["-O", "0"])
+            # phc2sys не поддерживает отрицательные offset, поэтому используем 0
+            # Компенсация уже применена через phc_ctl
+            cmd.extend(["-O", "0"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:

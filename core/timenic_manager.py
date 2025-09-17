@@ -943,26 +943,43 @@ class TimeNICManager:
                 self.logger.error(f"PTP устройства недоступны: {source_ptp}, {target_ptp}")
                 return False
             
-            # Запускаем phc2sys для синхронизации между PHC
-            cmd = [
-                "phc2sys",
-                "-s", source_ptp,  # источник
-                "-c", target_ptp,  # цель
-                "-O", "0",         # offset в секундах
-                "-R", "16",        # скорость коррекции
-                "-m"               # вывод логов в консоль
-            ]
-            
-            # Добавляем offset если указан
+            # Применяем компенсацию через phc_ctl если offset не равен 0
             if offset_ns != 0:
-                offset_sec = offset_ns / 1_000_000_000.0
-                cmd[4] = str(offset_sec)  # заменяем "-O", "0" на "-O", str(offset_sec)
-                self.logger.info(f"Применяется задержка {offset_ns} нс ({offset_sec:.9f} с)")
+                self.logger.info(f"Применение компенсации {offset_ns} нс через phc_ctl...")
+                try:
+                    # phc_ctl adj принимает offset в секундах
+                    offset_sec = offset_ns / 1_000_000_000.0
+                    adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
+                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        self.logger.info(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
+                    else:
+                        self.logger.warning(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                        self.logger.info("Продолжаем без предварительной компенсации...")
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    self.logger.warning(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                    self.logger.info("Продолжаем без предварительной компенсации...")
+
+            # Строим команду phc2sys
+            cmd = ["phc2sys", "-s", source_ptp, "-c", target_ptp]
+            
+            # phc2sys не поддерживает отрицательные offset, поэтому используем 0
+            # Компенсация уже применена через phc_ctl
+            cmd.extend(["-O", "0"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:
-                cmd[6] = str(rate)  # заменяем "-R", "16" на "-R", str(rate)
+                cmd.extend(["-R", str(rate)])
                 self.logger.info(f"Скорость коррекции: {rate}")
+            else:
+                cmd.extend(["-R", "16"])
+            
+            cmd.append("-m")  # вывод логов в консоль
+            
+            self.logger.info(f"Выполняем команду: {' '.join(cmd)}")
+            self.logger.info(f"Отладочная информация: cmd = {cmd}")
             
             # Запускаем в фоне
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
