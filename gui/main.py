@@ -248,10 +248,13 @@ class NICTableWidget(QTableWidget):
                 selection-background-color: #3498db;
                 border: 1px solid #bdc3c7;
                 border-radius: 8px;
+                color: #2c3e50;
             }
             QTableWidget::item {
                 padding: 8px;
                 border-bottom: 1px solid #ecf0f1;
+                color: #2c3e50;
+                background-color: white;
             }
             QTableWidget::item:selected {
                 background-color: #3498db;
@@ -353,10 +356,13 @@ class TimeNICTableWidget(QTableWidget):
                 selection-background-color: #3498db;
                 border: 1px solid #bdc3c7;
                 border-radius: 8px;
+                color: #2c3e50;
             }
             QTableWidget::item {
                 padding: 8px;
                 border-bottom: 1px solid #ecf0f1;
+                color: #2c3e50;
+                background-color: white;
             }
             QTableWidget::item:selected {
                 background-color: #3498db;
@@ -1720,11 +1726,13 @@ class MainWindow(QMainWindow):
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #ecf0f1;
+                color: #2c3e50;
             }
             QTabWidget::pane {
                 border: 1px solid #bdc3c7;
                 border-radius: 8px;
                 background-color: white;
+                color: #2c3e50;
             }
             QTabWidget::tab-bar {
                 alignment: left;
@@ -1959,11 +1967,102 @@ def main():
         QApplication {
             font-family: 'Segoe UI', 'Arial', sans-serif;
             font-size: 12px;
+            color: #2c3e50;
+            background-color: #ecf0f1;
+        }
+        QWidget {
+            color: #2c3e50;
+            background-color: #ecf0f1;
+        }
+        QLabel {
+            color: #2c3e50;
+            background-color: transparent;
+        }
+        QGroupBox {
+            color: #2c3e50;
+            background-color: white;
+            border: 2px solid #bdc3c7;
+            border-radius: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px 0 5px;
+            color: #2c3e50;
+            background-color: white;
+        }
+        QComboBox {
+            color: #2c3e50;
+            background-color: white;
+            border: 2px solid #bdc3c7;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        QComboBox::drop-down {
+            border: none;
+        }
+        QComboBox::down-arrow {
+            image: none;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid #2c3e50;
+            margin-right: 5px;
+        }
+        QSpinBox, QDoubleSpinBox {
+            color: #2c3e50;
+            background-color: white;
+            border: 2px solid #bdc3c7;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        QCheckBox {
+            color: #2c3e50;
+            background-color: transparent;
+        }
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #bdc3c7;
+            border-radius: 3px;
+            background-color: white;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #3498db;
+            border-color: #2980b9;
+        }
+        QTableWidget {
+            color: #2c3e50;
+            background-color: white;
+            gridline-color: #bdc3c7;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+        }
+        QTableWidget::item {
+            padding: 8px;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        QTableWidget::item:selected {
+            background-color: #3498db;
+            color: white;
+        }
+        QHeaderView::section {
+            background-color: #34495e;
+            color: white;
+            padding: 8px;
+            border: none;
+            font-weight: bold;
         }
         QMessageBox {
             background-color: white;
             border: 1px solid #bdc3c7;
             border-radius: 8px;
+            color: #2c3e50;
+        }
+        QMessageBox QLabel {
+            color: #2c3e50;
+            background-color: transparent;
         }
         QMessageBox QPushButton {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
