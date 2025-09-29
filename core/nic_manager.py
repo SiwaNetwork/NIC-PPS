@@ -1258,8 +1258,9 @@ done
                     print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
                     print("🔄 Пробуем обратное направление синхронизации...")
                     
-                    # Пробуем обратное направление
-                    return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
+                    # Пробуем обратное направление БЕЗ рекурсии
+                    print(f"🔄 Обратное направление: {target_ptp} -> {source_ptp}")
+                    return self._start_phc_sync_direct(target_ptp, source_ptp, abs(offset_ns), rate)
                 else:
                     # Стандартная компенсация через phc_ctl
                     print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
@@ -1424,48 +1425,6 @@ done
             print(f"❌ Ошибка определения PPS фронта: {e}")
             return False
     
-    def apply_edge_compensation(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Простая компенсация задержки без рекурсии"""
-        print("🔧 Применяем компенсацию задержки для исправления заднего фронта...")
-        
-        # Простая стратегия: пробуем обратное направление
-        print("🔄 Пробуем обратное направление синхронизации...")
-        print(f"   Направление: {target_ptp} -> {source_ptp}")
-        print(f"   Компенсация: {abs(offset_ns)} нс")
-        
-        # Применяем компенсацию через phc_ctl если offset не равен 0
-        if offset_ns != 0:
-            print(f"🔧 Применение компенсации {abs(offset_ns)} нс через phc_ctl...")
-            try:
-                # phc_ctl adj принимает offset в секундах
-                offset_sec = abs(offset_ns) / 1_000_000_000.0
-                adj_cmd = ["sudo", "-n", "phc_ctl", source_ptp, "--", "adj", str(offset_sec)]
-                result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
-                
-                if result.returncode == 0:
-                    print(f"✅ Компенсация {abs(offset_ns)} нс применена к {source_ptp}")
-                else:
-                    print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
-                    print("Продолжаем без предварительной компенсации...")
-                    
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
-                print("Продолжаем без предварительной компенсации...")
-        
-        # Пробуем запустить синхронизацию в обратном направлении
-        success = self._start_phc_sync_direct(
-            target_ptp,
-            source_ptp,
-            abs(offset_ns),
-            rate
-        )
-        
-        if success:
-            print("✅ Обратное направление успешно!")
-            return True
-        else:
-            print("❌ Обратное направление не удалось")
-            return False
     
     def _start_phc_sync_direct(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Прямой запуск синхронизации PHC без рекурсии"""
