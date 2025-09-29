@@ -1249,35 +1249,13 @@ done
             if rate != 0.0:
                 print(f"Скорость коррекции: {rate}")
             
-            # Применяем компенсацию через phc_ctl если offset не равен 0
-            if offset_ns != 0:
-                print(f"🔍 Анализируем offset {offset_ns} нс на предмет проблем с задним фронтом...")
-                
-                # Если offset отрицательный, это может указывать на проблему с задним фронтом
-                if offset_ns < 0:
-                    print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
-                    print("🔄 Пробуем обратное направление синхронизации...")
-                    
-                    # Пробуем обратное направление
-                    return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
-                else:
-                    # Стандартная компенсация через phc_ctl
-                    print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
-                    try:
-                        # phc_ctl adj принимает offset в секундах
-                        offset_sec = offset_ns / 1_000_000_000.0
-                        adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
-                        result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
-                        
-                        if result.returncode == 0:
-                            print(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
-                        else:
-                            print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
-                            print("Продолжаем без предварительной компенсации...")
-                            
-                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                        print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
-                        print("Продолжаем без предварительной компенсации...")
+            # АГРЕССИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА
+            # Принудительно применяем множественные стратегии исправления
+            print("🚨 ПРИНУДИТЕЛЬНОЕ ИСПРАВЛЕНИЕ НАПРАВЛЕНИЯ СИНХРОНИЗАЦИИ")
+            print("🔧 АКТИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА")
+            
+            # Всегда пробуем агрессивную компенсацию при любом offset
+            return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
 
             # Строим команду phc2sys как в терминале: phc2sys -c /dev/ptp0 -s /dev/ptp2 -O0 -m
             cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
@@ -1428,23 +1406,90 @@ done
         """Применение компенсации задержки через изменение направления синхронизации"""
         print("🔧 Применяем компенсацию задержки для исправления заднего фронта...")
         
-        # Если offset отрицательный, это может указывать на проблему с задним фронтом
-        if offset_ns < 0:
-            print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
-            print("🔄 Пробуем обратное направление синхронизации...")
+        # Агрессивная борьба с проблемой заднего фронта
+        print("🚨 АКТИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА")
+        print("🔍 Пробуем множественные стратегии исправления...")
+        
+        strategies = [
+            # Стратегия 1: Обратное направление с компенсацией
+            {
+                "name": "Обратное направление с компенсацией",
+                "source": target_ptp,
+                "target": source_ptp,
+                "offset": abs(offset_ns) if offset_ns != 0 else 1000,  # Минимальная компенсация
+                "rate": rate
+            },
+            # Стратегия 2: Стандартное направление с увеличенной компенсацией
+            {
+                "name": "Стандартное направление с увеличенной компенсацией",
+                "source": source_ptp,
+                "target": target_ptp,
+                "offset": abs(offset_ns) + 2000 if offset_ns != 0 else 2000,  # Увеличенная компенсация
+                "rate": rate
+            },
+            # Стратегия 3: Обратное направление с двойной компенсацией
+            {
+                "name": "Обратное направление с двойной компенсацией",
+                "source": target_ptp,
+                "target": source_ptp,
+                "offset": abs(offset_ns) * 2 if offset_ns != 0 else 4000,  # Двойная компенсация
+                "rate": rate
+            },
+            # Стратегия 4: Стандартное направление с нулевой компенсацией
+            {
+                "name": "Стандартное направление без компенсации",
+                "source": source_ptp,
+                "target": target_ptp,
+                "offset": 0,
+                "rate": rate
+            }
+        ]
+        
+        for i, strategy in enumerate(strategies, 1):
+            print(f"\n🎯 Стратегия {i}: {strategy['name']}")
+            print(f"   Направление: {strategy['source']} -> {strategy['target']}")
+            print(f"   Компенсация: {strategy['offset']} нс")
+            print(f"   Скорость: {strategy['rate']}")
             
-            # Пробуем обратное направление с положительным offset
-            success = self.start_phc_to_phc_sync(target_ptp, source_ptp, abs(offset_ns), rate)
+            # Применяем компенсацию через phc_ctl если offset не нулевой
+            if strategy['offset'] != 0:
+                print(f"🔧 Применение компенсации {strategy['offset']} нс через phc_ctl...")
+                try:
+                    offset_sec = strategy['offset'] / 1_000_000_000.0
+                    adj_cmd = ["sudo", "-n", "phc_ctl", strategy['target'], "--", "adj", str(offset_sec)]
+                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ Компенсация {strategy['offset']} нс применена")
+                    else:
+                        print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                        print("Продолжаем без предварительной компенсации...")
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                    print("Продолжаем без предварительной компенсации...")
+            
+            # Пробуем запустить синхронизацию
+            success = self.start_phc_to_phc_sync(
+                strategy['source'], 
+                strategy['target'], 
+                strategy['offset'], 
+                strategy['rate']
+            )
             
             if success:
-                print("✅ Компенсация применена через обратное направление")
+                print(f"✅ Стратегия {i} успешна!")
                 return True
             else:
-                print("❌ Обратное направление не помогло")
-                return False
-        else:
-            # Стандартное направление
-            return self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+                print(f"❌ Стратегия {i} не удалась")
+                
+                # Небольшая пауза между попытками
+                if i < len(strategies):
+                    print("⏳ Пауза перед следующей стратегией...")
+                    time.sleep(2)
+        
+        print("❌ Все стратегии исправления заднего фронта не удались")
+        return False
     
     def stabilize_phc_sync(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Стабилизация синхронизации PHC с множественными попытками"""
