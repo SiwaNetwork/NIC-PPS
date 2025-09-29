@@ -966,7 +966,7 @@ class TimeNICManager:
             cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
             
             # Используем параметры как в рабочей команде
-            cmd.extend(["-O", "0", "-m"])
+            cmd.extend(["-O", "0"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:
@@ -975,7 +975,8 @@ class TimeNICManager:
             else:
                 cmd.extend(["-R", "16"])
             
-            cmd.append("-m")  # вывод логов в консоль
+            # Добавляем -m в конце
+            cmd.append("-m")
             
             self.logger.info(f"Выполняем команду: {' '.join(cmd)}")
             self.logger.info(f"Отладочная информация: cmd = {cmd}")

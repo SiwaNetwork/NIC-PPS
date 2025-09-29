@@ -1272,7 +1272,7 @@ done
             cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
             
             # Используем параметры как в рабочей команде
-            cmd.extend(["-O", "0", "-m"])
+            cmd.extend(["-O", "0"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:
@@ -1281,7 +1281,8 @@ done
             else:
                 cmd.extend(["-R", "16"])
             
-            # -m уже добавлен в cmd.extend(["-O", "0", "-m"])
+            # Добавляем -m в конце
+            cmd.append("-m")
             
             print(f"Выполняем команду: {' '.join(cmd)}")
             print(f"Отладочная информация: cmd = {cmd}")
@@ -1301,7 +1302,18 @@ done
             # Проверяем наличие процессов phc2sys
             cmd = ["pgrep", "-f", "phc2sys"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            return result.returncode == 0 and result.stdout.strip()
+            if result.returncode == 0 and result.stdout.strip():
+                # Дополнительная проверка - убеждаемся что процесс действительно работает
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid.strip():
+                        try:
+                            # Проверяем что процесс действительно существует
+                            subprocess.run(["kill", "-0", pid.strip()], check=True, timeout=2)
+                            return True
+                        except:
+                            continue
+            return False
         except Exception:
             return False
     
@@ -1309,4 +1321,7 @@ done
         """Перезапуск синхронизации PHC если процесс упал"""
         if not self.is_phc_sync_running():
             print("🔄 Процесс phc2sys упал, перезапускаем...")
+            print(f"Параметры перезапуска: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}")
             self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+        else:
+            print("✅ Процесс phc2sys работает нормально")
