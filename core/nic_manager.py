@@ -1414,12 +1414,12 @@ done
         print("🔍 Проверяем направление синхронизации...")
         
         # Пробуем стандартное направление
-        success = self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+        success = self._start_phc_sync_direct(source_ptp, target_ptp, offset_ns, rate)
         
         if not success:
             print("🔄 Пробуем обратное направление синхронизации...")
             # Пробуем обратное направление
-            success = self.start_phc_to_phc_sync(target_ptp, source_ptp, -offset_ns, rate)
+            success = self._start_phc_sync_direct(target_ptp, source_ptp, -offset_ns, rate)
             
             if success:
                 print("✅ Синхронизация работает в обратном направлении")
@@ -1447,9 +1447,9 @@ done
     def _find_interface_for_ptp(self, ptp_device: str) -> Optional[str]:
         """Поиск интерфейса по PTP устройству"""
         try:
-            for interface, nic_info in self.nics.items():
+            for nic_info in self.nic_list:
                 if nic_info.ptp_devices and ptp_device in nic_info.ptp_devices:
-                    return interface
+                    return nic_info.interface
             return None
         except Exception as e:
             print(f"Ошибка поиска интерфейса для {ptp_device}: {e}")
@@ -1534,8 +1534,8 @@ done
             except:
                 pass
             
-            # Пробуем запустить синхронизацию
-            success = self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+            # Пробуем запустить синхронизацию напрямую
+            success = self._start_phc_sync_direct(source_ptp, target_ptp, offset_ns, rate)
             
             if success:
                 # Проверяем стабильность через 3 секунды
