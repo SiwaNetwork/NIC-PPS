@@ -1448,7 +1448,7 @@ done
         """Поиск интерфейса по PTP устройству"""
         try:
             for nic_info in self.nic_list:
-                if nic_info.ptp_devices and ptp_device in nic_info.ptp_devices:
+                if hasattr(nic_info, 'ptp_devices') and nic_info.ptp_devices and ptp_device in nic_info.ptp_devices:
                     return nic_info.interface
             return None
         except Exception as e:
