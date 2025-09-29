@@ -4,6 +4,7 @@
 """
 
 import time
+import os
 import psutil
 from typing import Dict, Any, Optional
 from prometheus_client import Counter, Histogram, Gauge, Info, CollectorRegistry, generate_latest
@@ -314,7 +315,6 @@ class HealthChecker:
     def _check_ptp(self) -> Dict[str, Any]:
         """Проверка PTP устройств"""
         try:
-            import os
             ptp_devices = [f for f in os.listdir('/dev') if f.startswith('ptp')]
             
             return {

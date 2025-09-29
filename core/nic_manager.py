@@ -1384,17 +1384,11 @@ done
             print("🔄 Процесс phc2sys упал, перезапускаем...")
             print(f"Параметры перезапуска: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}")
             
-            # Останавливаем все старые процессы phc2sys
-            try:
-                subprocess.run(["pkill", "-f", "phc2sys"], timeout=5)
-                time.sleep(1)
-            except:
-                pass
-            
-            # Проверяем и исправляем направление синхронизации
-            self.fix_sync_direction(source_ptp, target_ptp, offset_ns, rate)
+            # Используем стабилизированный перезапуск
+            return self.stabilize_phc_sync(source_ptp, target_ptp, offset_ns, rate)
         else:
             print("✅ Процесс phc2sys работает нормально")
+            return True
     
     def fix_sync_direction(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Исправление направления синхронизации при проблемах с задним фронтом"""
@@ -1451,3 +1445,39 @@ done
         else:
             # Стандартное направление
             return self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+    
+    def stabilize_phc_sync(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Стабилизация синхронизации PHC с множественными попытками"""
+        print("🔧 Стабилизируем синхронизацию PHC...")
+        
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            print(f"Попытка {attempt + 1}/{max_attempts}")
+            
+            # Останавливаем все старые процессы
+            try:
+                subprocess.run(["pkill", "-f", "phc2sys"], timeout=5)
+                time.sleep(2)
+            except:
+                pass
+            
+            # Пробуем запустить синхронизацию
+            success = self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+            
+            if success:
+                # Проверяем стабильность через 3 секунды
+                time.sleep(3)
+                if self.is_phc_sync_running():
+                    print("✅ Синхронизация стабилизирована")
+                    return True
+                else:
+                    print("⚠️ Синхронизация упала после запуска")
+            else:
+                print(f"❌ Попытка {attempt + 1} не удалась")
+            
+            if attempt < max_attempts - 1:
+                print("⏳ Ждем перед следующей попыткой...")
+                time.sleep(5)
+        
+        print("❌ Не удалось стабилизировать синхронизацию после всех попыток")
+        return False

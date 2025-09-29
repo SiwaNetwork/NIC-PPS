@@ -2033,7 +2033,8 @@ class MainWindow(QMainWindow):
                     total_offset_ns = int(offset_seconds * 1_000_000_000 + offset_nanoseconds)
                     rate = self.config_widget.phc_rate.value()
                     
-                    self.nic_manager.start_phc_to_phc_sync(
+                    # Используем улучшенный метод перезапуска с автоматическим исправлением направления
+                    self.nic_manager.restart_phc_sync_if_needed(
                         source_ptp, target_ptp, total_offset_ns, rate
                     )
         except Exception as e:
