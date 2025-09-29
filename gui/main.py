@@ -2008,12 +2008,36 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'status_label'):
                 self.status_label.setText("Данные обновлены")
                 self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+            
+            # Проверяем и перезапускаем phc2sys если нужно
+            self.check_and_restart_phc_sync()
                 
         except Exception as e:
             # Обновляем статус при ошибке
             if hasattr(self, 'status_label'):
                 self.status_label.setText(f"Ошибка обновления: {str(e)}")
                 self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+    
+    def check_and_restart_phc_sync(self):
+        """Проверка и перезапуск синхронизации PHC если процесс упал"""
+        try:
+            if not self.nic_manager.is_phc_sync_running():
+                # Получаем текущие настройки синхронизации
+                source_ptp = self.config_widget.source_ptp_combo.currentText()
+                target_ptp = self.config_widget.target_ptp_combo.currentText()
+                
+                if source_ptp and target_ptp and source_ptp != target_ptp:
+                    print("🔄 Автоматический перезапуск синхронизации PHC...")
+                    offset_seconds = self.config_widget.phc_offset_seconds.value()
+                    offset_nanoseconds = self.config_widget.phc_offset_nanoseconds.value()
+                    total_offset_ns = int(offset_seconds * 1_000_000_000 + offset_nanoseconds)
+                    rate = self.config_widget.phc_rate.value()
+                    
+                    self.nic_manager.start_phc_to_phc_sync(
+                        source_ptp, target_ptp, total_offset_ns, rate
+                    )
+        except Exception as e:
+            print(f"Ошибка проверки синхронизации PHC: {e}")
 
 
 def main():

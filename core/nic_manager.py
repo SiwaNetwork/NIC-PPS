@@ -1281,7 +1281,7 @@ done
             else:
                 cmd.extend(["-R", "16"])
             
-            cmd.append("-m")  # вывод логов в консоль
+            # -m уже добавлен в cmd.extend(["-O", "0", "-m"])
             
             print(f"Выполняем команду: {' '.join(cmd)}")
             print(f"Отладочная информация: cmd = {cmd}")
@@ -1294,3 +1294,19 @@ done
         except Exception as e:
             print(f"❌ Ошибка при запуске синхронизации PHC: {e}")
             return False
+    
+    def is_phc_sync_running(self):
+        """Проверка, запущена ли синхронизация PHC"""
+        try:
+            # Проверяем наличие процессов phc2sys
+            cmd = ["pgrep", "-f", "phc2sys"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return result.returncode == 0 and result.stdout.strip()
+        except Exception:
+            return False
+    
+    def restart_phc_sync_if_needed(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Перезапуск синхронизации PHC если процесс упал"""
+        if not self.is_phc_sync_running():
+            print("🔄 Процесс phc2sys упал, перезапускаем...")
+            self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
