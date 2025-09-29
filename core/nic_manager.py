@@ -1249,13 +1249,35 @@ done
             if rate != 0.0:
                 print(f"Скорость коррекции: {rate}")
             
-            # АГРЕССИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА
-            # Принудительно применяем множественные стратегии исправления
-            print("🚨 ПРИНУДИТЕЛЬНОЕ ИСПРАВЛЕНИЕ НАПРАВЛЕНИЯ СИНХРОНИЗАЦИИ")
-            print("🔧 АКТИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА")
-            
-            # Всегда пробуем агрессивную компенсацию при любом offset
-            return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
+            # Применяем компенсацию через phc_ctl если offset не равен 0
+            if offset_ns != 0:
+                print(f"🔍 Анализируем offset {offset_ns} нс на предмет проблем с задним фронтом...")
+                
+                # Если offset отрицательный, это может указывать на проблему с задним фронтом
+                if offset_ns < 0:
+                    print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
+                    print("🔄 Пробуем обратное направление синхронизации...")
+                    
+                    # Пробуем обратное направление
+                    return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
+                else:
+                    # Стандартная компенсация через phc_ctl
+                    print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
+                    try:
+                        # phc_ctl adj принимает offset в секундах
+                        offset_sec = offset_ns / 1_000_000_000.0
+                        adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
+                        result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                        
+                        if result.returncode == 0:
+                            print(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
+                        else:
+                            print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                            print("Продолжаем без предварительной компенсации...")
+                            
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                        print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                        print("Продолжаем без предварительной компенсации...")
 
             # Строим команду phc2sys как в терминале: phc2sys -c /dev/ptp0 -s /dev/ptp2 -O0 -m
             cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
