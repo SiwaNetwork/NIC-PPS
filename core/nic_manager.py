@@ -1249,6 +1249,24 @@ done
             if rate != 0.0:
                 print(f"Скорость коррекции: {rate}")
             
+            # ВАЖНО: Сначала включаем PPS output для привязки к переднему фронту
+            print("🔧 Включение PPS output перед запуском phc2sys для привязки к переднему фронту...")
+            try:
+                # Находим интерфейс для target_ptp
+                target_interface = self._find_interface_for_ptp(target_ptp)
+                if target_interface:
+                    print(f"📡 Включаем PPS output для {target_interface} ({target_ptp})")
+                    pps_success = self.set_pps_mode(target_interface, PPSMode.OUTPUT)
+                    if pps_success:
+                        print("✅ PPS output включен - система готова к привязке к переднему фронту")
+                    else:
+                        print("⚠️ Не удалось включить PPS output, но продолжаем...")
+                else:
+                    print(f"⚠️ Не удалось найти интерфейс для {target_ptp}")
+            except Exception as e:
+                print(f"⚠️ Ошибка при включении PPS output: {e}")
+                print("Продолжаем без PPS output...")
+            
             # Применяем компенсацию через phc_ctl если offset не равен 0
             if offset_ns != 0:
                 print(f"🔍 Анализируем offset {offset_ns} нс на предмет проблем с задним фронтом...")
@@ -1425,6 +1443,17 @@ done
             print(f"❌ Ошибка определения PPS фронта: {e}")
             return False
     
+    
+    def _find_interface_for_ptp(self, ptp_device: str) -> Optional[str]:
+        """Поиск интерфейса по PTP устройству"""
+        try:
+            for interface, nic_info in self.nics.items():
+                if nic_info.ptp_devices and ptp_device in nic_info.ptp_devices:
+                    return interface
+            return None
+        except Exception as e:
+            print(f"Ошибка поиска интерфейса для {ptp_device}: {e}")
+            return None
     
     def _start_phc_sync_direct(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Прямой запуск синхронизации PHC без рекурсии"""
