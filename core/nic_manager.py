@@ -1251,22 +1251,33 @@ done
             
             # Применяем компенсацию через phc_ctl если offset не равен 0
             if offset_ns != 0:
-                print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
-                try:
-                    # phc_ctl adj принимает offset в секундах
-                    offset_sec = offset_ns / 1_000_000_000.0
-                    adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
-                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
+                print(f"🔍 Анализируем offset {offset_ns} нс на предмет проблем с задним фронтом...")
+                
+                # Если offset отрицательный, это может указывать на проблему с задним фронтом
+                if offset_ns < 0:
+                    print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
+                    print("🔄 Пробуем обратное направление синхронизации...")
                     
-                    if result.returncode == 0:
-                        print(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
-                    else:
-                        print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
-                        print("Продолжаем без предварительной компенсации...")
+                    # Пробуем обратное направление
+                    return self.apply_edge_compensation(source_ptp, target_ptp, offset_ns, rate)
+                else:
+                    # Стандартная компенсация через phc_ctl
+                    print(f"Применение компенсации {offset_ns} нс через phc_ctl...")
+                    try:
+                        # phc_ctl adj принимает offset в секундах
+                        offset_sec = offset_ns / 1_000_000_000.0
+                        adj_cmd = ["sudo", "-n", "phc_ctl", target_ptp, "--", "adj", str(offset_sec)]
+                        result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
                         
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
-                    print("Продолжаем без предварительной компенсации...")
+                        if result.returncode == 0:
+                            print(f"✅ Компенсация {offset_ns} нс применена к {target_ptp}")
+                        else:
+                            print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                            print("Продолжаем без предварительной компенсации...")
+                            
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                        print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                        print("Продолжаем без предварительной компенсации...")
 
             # Строим команду phc2sys как в терминале: phc2sys -c /dev/ptp0 -s /dev/ptp2 -O0 -m
             cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
@@ -1380,6 +1391,63 @@ done
             except:
                 pass
             
-            self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+            # Проверяем и исправляем направление синхронизации
+            self.fix_sync_direction(source_ptp, target_ptp, offset_ns, rate)
         else:
             print("✅ Процесс phc2sys работает нормально")
+    
+    def fix_sync_direction(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Исправление направления синхронизации при проблемах с задним фронтом"""
+        print("🔍 Проверяем направление синхронизации...")
+        
+        # Пробуем стандартное направление
+        success = self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
+        
+        if not success:
+            print("🔄 Пробуем обратное направление синхронизации...")
+            # Пробуем обратное направление
+            success = self.start_phc_to_phc_sync(target_ptp, source_ptp, -offset_ns, rate)
+            
+            if success:
+                print("✅ Синхронизация работает в обратном направлении")
+            else:
+                print("❌ Синхронизация не работает в обоих направлениях")
+    
+    def detect_pps_edge(self, ptp_device):
+        """Определение фронта PPS сигнала"""
+        try:
+            # Используем testptp для мониторинга PPS
+            cmd = ["testptp", "-d", ptp_device, "-e", "1", "0"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+            
+            if result.returncode == 0:
+                print(f"✅ PPS сигнал обнаружен на {ptp_device}")
+                return True
+            else:
+                print(f"⚠️ PPS сигнал не обнаружен на {ptp_device}")
+                return False
+        except Exception as e:
+            print(f"❌ Ошибка определения PPS фронта: {e}")
+            return False
+    
+    def apply_edge_compensation(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Применение компенсации задержки через изменение направления синхронизации"""
+        print("🔧 Применяем компенсацию задержки для исправления заднего фронта...")
+        
+        # Если offset отрицательный, это может указывать на проблему с задним фронтом
+        if offset_ns < 0:
+            print("⚠️ Обнаружен отрицательный offset - возможна проблема с задним фронтом")
+            print("🔄 Пробуем обратное направление синхронизации...")
+            
+            # Пробуем обратное направление с положительным offset
+            success = self.start_phc_to_phc_sync(target_ptp, source_ptp, abs(offset_ns), rate)
+            
+            if success:
+                print("✅ Компенсация применена через обратное направление")
+                return True
+            else:
+                print("❌ Обратное направление не помогло")
+                return False
+        else:
+            # Стандартное направление
+            return self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
