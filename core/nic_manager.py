@@ -1469,8 +1469,8 @@ done
                     print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
                     print("Продолжаем без предварительной компенсации...")
             
-            # Пробуем запустить синхронизацию
-            success = self.start_phc_to_phc_sync(
+            # Пробуем запустить синхронизацию БЕЗ рекурсии
+            success = self._start_phc_sync_direct(
                 strategy['source'], 
                 strategy['target'], 
                 strategy['offset'], 
@@ -1490,6 +1490,70 @@ done
         
         print("❌ Все стратегии исправления заднего фронта не удались")
         return False
+    
+    def _start_phc_sync_direct(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Прямой запуск синхронизации PHC без рекурсии"""
+        try:
+            # Проверяем доступность устройств
+            if not os.path.exists(source_ptp) or not os.path.exists(target_ptp):
+                print(f"❌ PTP устройства недоступны: {source_ptp}, {target_ptp}")
+                return False
+            
+            # Проверяем права доступа
+            if not os.access(source_ptp, os.R_OK) or not os.access(target_ptp, os.R_OK):
+                print(f"⚠️ Нет прав доступа к PTP устройствам: {source_ptp}, {target_ptp}")
+            
+            # Строим команду phc2sys
+            cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
+            cmd.extend(["-O", "0"])  # Всегда используем 0 offset для phc2sys
+            
+            # Добавляем rate
+            if rate != 0.0:
+                cmd.extend(["-R", str(rate)])
+            else:
+                cmd.extend(["-R", "16"])
+            
+            cmd.append("-m")  # Добавляем -m в конце
+            
+            print(f"Выполняем команду: {' '.join(cmd)}")
+            print(f"Отладочная информация: cmd = {cmd}")
+            
+            # Запускаем процесс
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            # Небольшая задержка для проверки успешного запуска
+            time.sleep(1)
+            
+            # Проверяем, что процесс все еще работает
+            if process.poll() is None:
+                print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
+                return True
+            else:
+                # Процесс завершился сразу - получаем ошибку
+                stdout, stderr = process.communicate()
+                print(f"❌ Синхронизация PHC завершилась с ошибкой:")
+                print(f"stdout: {stdout}")
+                print(f"stderr: {stderr}")
+                
+                # Пробуем с sudo
+                print("🔄 Пробуем запустить с sudo...")
+                sudo_cmd = ["sudo"] + cmd
+                sudo_process = subprocess.Popen(sudo_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                time.sleep(1)
+                
+                if sudo_process.poll() is None:
+                    print(f"✅ Синхронизация PHC запущена с sudo (PID: {sudo_process.pid})")
+                    return True
+                else:
+                    stdout, stderr = sudo_process.communicate()
+                    print(f"❌ Синхронизация с sudo также не удалась:")
+                    print(f"stdout: {stdout}")
+                    print(f"stderr: {stderr}")
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ Ошибка при запуске синхронизации PHC: {e}")
+            return False
     
     def stabilize_phc_sync(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Стабилизация синхронизации PHC с множественными попытками"""
