@@ -1743,6 +1743,11 @@ class MainWindow(QMainWindow):
         self.setMaximumSize(1920, 1080)  # Максимальный размер для больших мониторов
         self.resize(width, height)  # Устанавливаем начальный размер
         
+        # Принудительно показываем окно
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        
         # Установка современного стиля для всего приложения
         self.setStyleSheet("""
             QMainWindow {

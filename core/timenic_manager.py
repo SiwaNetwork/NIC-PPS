@@ -962,12 +962,11 @@ class TimeNICManager:
                     self.logger.warning(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
                     self.logger.info("Продолжаем без предварительной компенсации...")
 
-            # Строим команду phc2sys
-            cmd = ["phc2sys", "-s", source_ptp, "-c", target_ptp]
+            # Строим команду phc2sys как в терминале: phc2sys -c /dev/ptp0 -s /dev/ptp2 -O0 -m
+            cmd = ["phc2sys", "-c", target_ptp, "-s", source_ptp]
             
-            # phc2sys не поддерживает отрицательные offset, поэтому используем 0
-            # Компенсация уже применена через phc_ctl
-            cmd.extend(["-O", "0"])
+            # Используем параметры как в рабочей команде
+            cmd.extend(["-O", "0", "-m"])
             
             # Добавляем скорость коррекции если указана
             if rate != 0.0:
