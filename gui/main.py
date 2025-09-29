@@ -251,7 +251,7 @@ class NICTableWidget(QTableWidget):
                 color: #2c3e50;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 4px;
                 border-bottom: 1px solid #ecf0f1;
                 color: #2c3e50;
                 background-color: white;
@@ -277,8 +277,8 @@ class NICTableWidget(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSortingEnabled(True)
         
-        # Установка минимальной высоты строк
-        self.verticalHeader().setDefaultSectionSize(40)
+        # Установка минимальной высоты строк (более компактно)
+        self.verticalHeader().setDefaultSectionSize(30)
         
         # Автоматическое изменение размера столбцов
         self.resizeColumnsToContents()
@@ -359,7 +359,7 @@ class TimeNICTableWidget(QTableWidget):
                 color: #2c3e50;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 4px;
                 border-bottom: 1px solid #ecf0f1;
                 color: #2c3e50;
                 background-color: white;
@@ -385,8 +385,8 @@ class TimeNICTableWidget(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSortingEnabled(True)
         
-        # Установка минимальной высоты строк
-        self.verticalHeader().setDefaultSectionSize(40)
+        # Установка минимальной высоты строк (более компактно)
+        self.verticalHeader().setDefaultSectionSize(30)
         
         # Автоматическое изменение размера столбцов
         self.resizeColumnsToContents()
@@ -1720,7 +1720,28 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         """Настройка интерфейса главного окна"""
         self.setWindowTitle("SHIWA NIC-PPS Configuration and Monitoring Tool v1.2.0")
-        self.setGeometry(100, 100, 1400, 900)
+        
+        # Адаптивный размер окна
+        screen = QApplication.primaryScreen().availableGeometry()
+        # Используем 90% от доступного размера экрана
+        width = int(screen.width() * 0.9)
+        height = int(screen.height() * 0.9)
+        # Минимальный размер
+        width = max(width, 1000)
+        height = max(height, 700)
+        # Максимальный размер
+        width = min(width, 1600)
+        height = min(height, 1200)
+        
+        # Центрируем окно
+        x = (screen.width() - width) // 2
+        y = (screen.height() - height) // 2
+        self.setGeometry(x, y, width, height)
+        
+        # Устанавливаем минимальный размер и делаем окно изменяемым
+        self.setMinimumSize(800, 600)
+        self.setMaximumSize(1920, 1080)  # Максимальный размер для больших мониторов
+        self.resize(width, height)  # Устанавливаем начальный размер
         
         # Установка современного стиля для всего приложения
         self.setStyleSheet("""
@@ -1761,9 +1782,49 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        # Создаем центральный виджет
+        # Создаем центральный виджет с прокруткой
         central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(central_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Стили для прокрутки
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: #ecf0f1;
+            }
+            QScrollBar:vertical {
+                background-color: #bdc3c7;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #7f8c8d;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #5d6d7e;
+            }
+            QScrollBar:horizontal {
+                background-color: #bdc3c7;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #7f8c8d;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #5d6d7e;
+            }
+        """)
+        
+        self.setCentralWidget(scroll_area)
         
         # Создаем вкладки
         tab_widget = QTabWidget()
