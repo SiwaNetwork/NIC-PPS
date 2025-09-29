@@ -1287,10 +1287,62 @@ done
             print(f"Выполняем команду: {' '.join(cmd)}")
             print(f"Отладочная информация: cmd = {cmd}")
             
-            # Запускаем в фоне
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
-            return True
+            # Проверяем права доступа к PTP устройствам
+            try:
+                import os
+                if not os.access(source_ptp, os.R_OK):
+                    print(f"⚠️ Нет прав на чтение {source_ptp}")
+                if not os.access(target_ptp, os.R_OK):
+                    print(f"⚠️ Нет прав на чтение {target_ptp}")
+            except Exception as e:
+                print(f"⚠️ Ошибка проверки прав доступа: {e}")
+            
+            # Запускаем в фоне с детальным логированием
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Ждем немного и проверяем что процесс не упал сразу
+            import time
+            time.sleep(1)
+            
+            if process.poll() is None:
+                print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
+                return True
+            else:
+                # Процесс упал сразу, получаем ошибку
+                stdout, stderr = process.communicate()
+                print(f"❌ phc2sys упал сразу после запуска:")
+                print(f"STDOUT: {stdout}")
+                print(f"STDERR: {stderr}")
+                
+                # Пробуем запустить с sudo
+                print("🔄 Пробуем запустить с sudo...")
+                sudo_cmd = ["sudo"] + cmd
+                try:
+                    sudo_process = subprocess.Popen(
+                        sudo_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    time.sleep(1)
+                    
+                    if sudo_process.poll() is None:
+                        print(f"✅ Синхронизация PHC запущена с sudo (PID: {sudo_process.pid})")
+                        return True
+                    else:
+                        sudo_stdout, sudo_stderr = sudo_process.communicate()
+                        print(f"❌ phc2sys с sudo тоже упал:")
+                        print(f"STDOUT: {sudo_stdout}")
+                        print(f"STDERR: {sudo_stderr}")
+                        return False
+                except Exception as sudo_e:
+                    print(f"❌ Ошибка запуска с sudo: {sudo_e}")
+                    return False
             
         except Exception as e:
             print(f"❌ Ошибка при запуске синхронизации PHC: {e}")
@@ -1322,6 +1374,15 @@ done
         if not self.is_phc_sync_running():
             print("🔄 Процесс phc2sys упал, перезапускаем...")
             print(f"Параметры перезапуска: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}")
+            
+            # Останавливаем все старые процессы phc2sys
+            try:
+                subprocess.run(["pkill", "-f", "phc2sys"], timeout=5)
+                import time
+                time.sleep(1)
+            except:
+                pass
+            
             self.start_phc_to_phc_sync(source_ptp, target_ptp, offset_ns, rate)
         else:
             print("✅ Процесс phc2sys работает нормально")
