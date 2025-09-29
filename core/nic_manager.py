@@ -1425,93 +1425,47 @@ done
             return False
     
     def apply_edge_compensation(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Применение компенсации задержки через изменение направления синхронизации"""
+        """Простая компенсация задержки без рекурсии"""
         print("🔧 Применяем компенсацию задержки для исправления заднего фронта...")
         
-        # Агрессивная борьба с проблемой заднего фронта
-        print("🚨 АКТИВНАЯ БОРЬБА С ПРОБЛЕМОЙ ЗАДНЕГО ФРОНТА")
-        print("🔍 Пробуем множественные стратегии исправления...")
+        # Простая стратегия: пробуем обратное направление
+        print("🔄 Пробуем обратное направление синхронизации...")
+        print(f"   Направление: {target_ptp} -> {source_ptp}")
+        print(f"   Компенсация: {abs(offset_ns)} нс")
         
-        strategies = [
-            # Стратегия 1: Обратное направление с компенсацией
-            {
-                "name": "Обратное направление с компенсацией",
-                "source": target_ptp,
-                "target": source_ptp,
-                "offset": abs(offset_ns) if offset_ns != 0 else 1000,  # Минимальная компенсация
-                "rate": rate
-            },
-            # Стратегия 2: Стандартное направление с увеличенной компенсацией
-            {
-                "name": "Стандартное направление с увеличенной компенсацией",
-                "source": source_ptp,
-                "target": target_ptp,
-                "offset": abs(offset_ns) + 2000 if offset_ns != 0 else 2000,  # Увеличенная компенсация
-                "rate": rate
-            },
-            # Стратегия 3: Обратное направление с двойной компенсацией
-            {
-                "name": "Обратное направление с двойной компенсацией",
-                "source": target_ptp,
-                "target": source_ptp,
-                "offset": abs(offset_ns) * 2 if offset_ns != 0 else 4000,  # Двойная компенсация
-                "rate": rate
-            },
-            # Стратегия 4: Стандартное направление с нулевой компенсацией
-            {
-                "name": "Стандартное направление без компенсации",
-                "source": source_ptp,
-                "target": target_ptp,
-                "offset": 0,
-                "rate": rate
-            }
-        ]
-        
-        for i, strategy in enumerate(strategies, 1):
-            print(f"\n🎯 Стратегия {i}: {strategy['name']}")
-            print(f"   Направление: {strategy['source']} -> {strategy['target']}")
-            print(f"   Компенсация: {strategy['offset']} нс")
-            print(f"   Скорость: {strategy['rate']}")
-            
-            # Применяем компенсацию через phc_ctl если offset не нулевой
-            if strategy['offset'] != 0:
-                print(f"🔧 Применение компенсации {strategy['offset']} нс через phc_ctl...")
-                try:
-                    offset_sec = strategy['offset'] / 1_000_000_000.0
-                    adj_cmd = ["sudo", "-n", "phc_ctl", strategy['target'], "--", "adj", str(offset_sec)]
-                    result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
-                    
-                    if result.returncode == 0:
-                        print(f"✅ Компенсация {strategy['offset']} нс применена")
-                    else:
-                        print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
-                        print("Продолжаем без предварительной компенсации...")
-                        
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
-                    print("Продолжаем без предварительной компенсации...")
-            
-            # Пробуем запустить синхронизацию БЕЗ рекурсии
-            success = self._start_phc_sync_direct(
-                strategy['source'], 
-                strategy['target'], 
-                strategy['offset'], 
-                strategy['rate']
-            )
-            
-            if success:
-                print(f"✅ Стратегия {i} успешна!")
-                return True
-            else:
-                print(f"❌ Стратегия {i} не удалась")
+        # Применяем компенсацию через phc_ctl если offset не равен 0
+        if offset_ns != 0:
+            print(f"🔧 Применение компенсации {abs(offset_ns)} нс через phc_ctl...")
+            try:
+                # phc_ctl adj принимает offset в секундах
+                offset_sec = abs(offset_ns) / 1_000_000_000.0
+                adj_cmd = ["sudo", "-n", "phc_ctl", source_ptp, "--", "adj", str(offset_sec)]
+                result = subprocess.run(adj_cmd, capture_output=True, text=True, timeout=10)
                 
-                # Небольшая пауза между попытками
-                if i < len(strategies):
-                    print("⏳ Пауза перед следующей стратегией...")
-                    time.sleep(2)
+                if result.returncode == 0:
+                    print(f"✅ Компенсация {abs(offset_ns)} нс применена к {source_ptp}")
+                else:
+                    print(f"⚠️ Предупреждение: phc_ctl adj не удался: {result.stderr}")
+                    print("Продолжаем без предварительной компенсации...")
+                    
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"⚠️ Предупреждение: phc_ctl adj ошибка: {e}")
+                print("Продолжаем без предварительной компенсации...")
         
-        print("❌ Все стратегии исправления заднего фронта не удались")
-        return False
+        # Пробуем запустить синхронизацию в обратном направлении
+        success = self._start_phc_sync_direct(
+            target_ptp,
+            source_ptp,
+            abs(offset_ns),
+            rate
+        )
+        
+        if success:
+            print("✅ Обратное направление успешно!")
+            return True
+        else:
+            print("❌ Обратное направление не удалось")
+            return False
     
     def _start_phc_sync_direct(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Прямой запуск синхронизации PHC без рекурсии"""
