@@ -1289,7 +1289,6 @@ done
             
             # Проверяем права доступа к PTP устройствам
             try:
-                import os
                 if not os.access(source_ptp, os.R_OK):
                     print(f"⚠️ Нет прав на чтение {source_ptp}")
                 if not os.access(target_ptp, os.R_OK):
@@ -1306,7 +1305,6 @@ done
             )
             
             # Ждем немного и проверяем что процесс не упал сразу
-            import time
             time.sleep(1)
             
             if process.poll() is None:
@@ -1378,7 +1376,6 @@ done
             # Останавливаем все старые процессы phc2sys
             try:
                 subprocess.run(["pkill", "-f", "phc2sys"], timeout=5)
-                import time
                 time.sleep(1)
             except:
                 pass
