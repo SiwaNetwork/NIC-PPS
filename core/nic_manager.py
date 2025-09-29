@@ -1566,3 +1566,94 @@ done
         
         print("❌ Не удалось стабилизировать синхронизацию после всех попыток")
         return False
+    
+    def start_aggressive_monitoring(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Агрессивный мониторинг и автоматический перезапуск синхронизации"""
+        print("🚨 Запуск агрессивного мониторинга синхронизации PHC...")
+        
+        # Запускаем фоновый процесс мониторинга
+        monitoring_script = f"""#!/bin/bash
+# Агрессивный мониторинг синхронизации PHC
+echo "🚨 Агрессивный мониторинг PHC синхронизации запущен"
+echo "Параметры: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}"
+
+while true; do
+    # Проверяем, работает ли phc2sys
+    if ! pgrep -f "phc2sys" > /dev/null; then
+        echo "$(date): ❌ phc2sys упал, перезапускаем..."
+        
+        # Убиваем все старые процессы
+        pkill -f "phc2sys" 2>/dev/null || true
+        sleep 2
+        
+        # Запускаем новую синхронизацию
+        echo "🔄 Перезапуск синхронизации: {source_ptp} -> {target_ptp}"
+        
+        # Применяем offset если нужно
+        if [ {offset_ns} -ne 0 ]; then
+            offset_sec=$(echo "scale=9; {offset_ns}/1000000000" | bc -l)
+            echo "🔧 Применение компенсации {offset_ns} нс..."
+            sudo -n phc_ctl {target_ptp} -- adj $offset_sec 2>/dev/null || echo "⚠️ phc_ctl не удался"
+        fi
+        
+        # Запускаем phc2sys
+        phc2sys -c {target_ptp} -s {source_ptp} -O 0 -R {rate} -m &
+        sleep 3
+        
+        # Проверяем что процесс запустился
+        if pgrep -f "phc2sys" > /dev/null; then
+            echo "✅ Синхронизация перезапущена успешно"
+        else
+            echo "❌ Не удалось перезапустить синхронизацию"
+        fi
+    else
+        echo "$(date): ✅ phc2sys работает нормально"
+    fi
+    
+    # Ждем 30 секунд перед следующей проверкой
+    sleep 30
+done
+"""
+        
+        # Записываем скрипт мониторинга
+        script_path = "/tmp/phc_aggressive_monitor.sh"
+        with open(script_path, 'w') as f:
+            f.write(monitoring_script)
+        
+        # Делаем скрипт исполняемым
+        os.chmod(script_path, 0o755)
+        
+        # Запускаем мониторинг в фоне
+        try:
+            process = subprocess.Popen(
+                ["bash", script_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                preexec_fn=os.setsid  # Отделяем от родительского процесса
+            )
+            
+            print(f"✅ Агрессивный мониторинг запущен (PID: {process.pid})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка запуска агрессивного мониторинга: {e}")
+            return False
+    
+    def stop_aggressive_monitoring(self):
+        """Остановка агрессивного мониторинга"""
+        try:
+            print("🛑 Остановка агрессивного мониторинга...")
+            
+            # Останавливаем мониторинг
+            subprocess.run(["pkill", "-f", "phc_aggressive_monitor.sh"], timeout=5)
+            
+            # Останавливаем синхронизацию
+            self.stop_phc_sync()
+            
+            print("✅ Агрессивный мониторинг остановлен")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка остановки мониторинга: {e}")
+            return False

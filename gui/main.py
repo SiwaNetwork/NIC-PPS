@@ -2033,8 +2033,9 @@ class MainWindow(QMainWindow):
                     total_offset_ns = int(offset_seconds * 1_000_000_000 + offset_nanoseconds)
                     rate = self.config_widget.phc_rate.value()
                     
-                    # Используем улучшенный метод перезапуска с автоматическим исправлением направления
-                    self.nic_manager.restart_phc_sync_if_needed(
+                    # Используем агрессивный мониторинг для стабильной работы
+                    print("🚨 Запуск агрессивного мониторинга для предотвращения отвалов...")
+                    self.nic_manager.start_aggressive_monitoring(
                         source_ptp, target_ptp, total_offset_ns, rate
                     )
         except Exception as e:
