@@ -1407,52 +1407,6 @@ done
         except Exception:
             return False
     
-    def restart_phc_sync_if_needed(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Перезапуск синхронизации PHC если процесс упал"""
-        if not self.is_phc_sync_running():
-            print("🔄 Процесс phc2sys упал, перезапускаем...")
-            print(f"Параметры перезапуска: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}")
-            
-            # Используем стабилизированный перезапуск
-            return self.stabilize_phc_sync(source_ptp, target_ptp, offset_ns, rate)
-        else:
-            print("✅ Процесс phc2sys работает нормально")
-            return True
-    
-    def fix_sync_direction(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Исправление направления синхронизации при проблемах с задним фронтом"""
-        print("🔍 Проверяем направление синхронизации...")
-        
-        # Пробуем стандартное направление
-        success = self._start_phc_sync_direct(source_ptp, target_ptp, offset_ns, rate)
-        
-        if not success:
-            print("🔄 Пробуем обратное направление синхронизации...")
-            # Пробуем обратное направление
-            success = self._start_phc_sync_direct(target_ptp, source_ptp, -offset_ns, rate)
-            
-            if success:
-                print("✅ Синхронизация работает в обратном направлении")
-            else:
-                print("❌ Синхронизация не работает в обоих направлениях")
-    
-    def detect_pps_edge(self, ptp_device):
-        """Определение фронта PPS сигнала"""
-        try:
-            # Используем testptp для мониторинга PPS
-            cmd = ["testptp", "-d", ptp_device, "-e", "1", "0"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
-            
-            if result.returncode == 0:
-                print(f"✅ PPS сигнал обнаружен на {ptp_device}")
-                return True
-            else:
-                print(f"⚠️ PPS сигнал не обнаружен на {ptp_device}")
-                return False
-        except Exception as e:
-            print(f"❌ Ошибка определения PPS фронта: {e}")
-            return False
-    
     
     def _find_interface_for_ptp(self, ptp_device: str) -> Optional[str]:
         """Поиск интерфейса по PTP устройству"""
@@ -1492,78 +1446,35 @@ done
             print(f"Выполняем команду: {' '.join(cmd)}")
             print(f"Отладочная информация: cmd = {cmd}")
             
-            # Запускаем процесс
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            # Запускаем процесс в фоне (без захвата stdout/stderr)
+            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Небольшая задержка для проверки успешного запуска
-            time.sleep(1)
+            time.sleep(2)
             
             # Проверяем, что процесс все еще работает
             if process.poll() is None:
                 print(f"✅ Синхронизация PHC запущена успешно (PID: {process.pid})")
                 return True
             else:
-                # Процесс завершился сразу - получаем ошибку
-                stdout, stderr = process.communicate()
-                print(f"❌ Синхронизация PHC завершилась с ошибкой:")
-                print(f"stdout: {stdout}")
-                print(f"stderr: {stderr}")
-                
-                # Пробуем с sudo
+                # Процесс завершился сразу - пробуем с sudo
                 print("🔄 Пробуем запустить с sudo...")
                 sudo_cmd = ["sudo"] + cmd
-                sudo_process = subprocess.Popen(sudo_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                time.sleep(1)
+                sudo_process = subprocess.Popen(sudo_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(2)
                 
                 if sudo_process.poll() is None:
                     print(f"✅ Синхронизация PHC запущена с sudo (PID: {sudo_process.pid})")
                     return True
                 else:
-                    stdout, stderr = sudo_process.communicate()
-                    print(f"❌ Синхронизация с sudo также не удалась:")
-                    print(f"stdout: {stdout}")
-                    print(f"stderr: {stderr}")
+                    print(f"❌ phc2sys упал сразу после запуска:")
+                    print("STDOUT: ")
+                    print("STDERR: ")
                     return False
                     
         except Exception as e:
             print(f"❌ Ошибка при запуске синхронизации PHC: {e}")
             return False
-    
-    def stabilize_phc_sync(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Стабилизация синхронизации PHC с множественными попытками"""
-        print("🔧 Стабилизируем синхронизацию PHC...")
-        
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            print(f"Попытка {attempt + 1}/{max_attempts}")
-            
-            # Останавливаем все старые процессы
-            try:
-                subprocess.run(["pkill", "-f", "phc2sys"], timeout=5)
-                time.sleep(2)
-            except:
-                pass
-            
-            # Пробуем запустить синхронизацию напрямую
-            success = self._start_phc_sync_direct(source_ptp, target_ptp, offset_ns, rate)
-            
-            if success:
-                # Проверяем стабильность через 3 секунды
-                time.sleep(3)
-                if self.is_phc_sync_running():
-                    print("✅ Синхронизация стабилизирована")
-                    return True
-                else:
-                    print("⚠️ Синхронизация упала после запуска")
-            else:
-                print(f"❌ Попытка {attempt + 1} не удалась")
-            
-            if attempt < max_attempts - 1:
-                print("⏳ Ждем перед следующей попыткой...")
-                time.sleep(5)
-        
-        print("❌ Не удалось стабилизировать синхронизацию после всех попыток")
-        return False
     
     def start_phc_watchdog(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
         """Запуск watchdog для автоматического мониторинга и перезапуска phc2sys"""
@@ -1618,93 +1529,10 @@ done
             print(f"⚠️ Ошибка остановки watchdog: {e}")
     
     def start_aggressive_monitoring(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """УСТАРЕВШИЙ МЕТОД - используйте start_phc_watchdog"""
+        """УСТАРЕВШИЙ МЕТОД - используйте start_phc_watchdog
+        
+        Этот метод оставлен для обратной совместимости и перенаправляет на start_phc_watchdog.
+        """
         print("⚠️ start_aggressive_monitoring устарел, используется start_phc_watchdog")
         return self.start_phc_watchdog(source_ptp, target_ptp, offset_ns, rate)
-        
-        # Запускаем фоновый процесс мониторинга
-        monitoring_script = f"""#!/bin/bash
-# Агрессивный мониторинг синхронизации PHC
-echo "🚨 Агрессивный мониторинг PHC синхронизации запущен"
-echo "Параметры: {source_ptp} -> {target_ptp}, offset={offset_ns}ns, rate={rate}"
-
-while true; do
-    # Проверяем, работает ли phc2sys
-    if ! pgrep -f "phc2sys" > /dev/null; then
-        echo "$(date): ❌ phc2sys упал, перезапускаем..."
-        
-        # Убиваем все старые процессы
-        pkill -f "phc2sys" 2>/dev/null || true
-        sleep 2
-        
-        # Запускаем новую синхронизацию
-        echo "🔄 Перезапуск синхронизации: {source_ptp} -> {target_ptp}"
-        
-        # Применяем offset если нужно
-        if [ {offset_ns} -ne 0 ]; then
-            offset_sec=$(echo "scale=9; {offset_ns}/1000000000" | bc -l)
-            echo "🔧 Применение компенсации {offset_ns} нс..."
-            sudo -n phc_ctl {target_ptp} -- adj $offset_sec 2>/dev/null || echo "⚠️ phc_ctl не удался"
-        fi
-        
-        # Запускаем phc2sys
-        phc2sys -c {target_ptp} -s {source_ptp} -O 0 -R {rate} -m &
-        sleep 3
-        
-        # Проверяем что процесс запустился
-        if pgrep -f "phc2sys" > /dev/null; then
-            echo "✅ Синхронизация перезапущена успешно"
-        else
-            echo "❌ Не удалось перезапустить синхронизацию"
-        fi
-    else
-        echo "$(date): ✅ phc2sys работает нормально"
-    fi
     
-    # Ждем 30 секунд перед следующей проверкой
-    sleep 30
-done
-"""
-        
-        # Записываем скрипт мониторинга
-        script_path = "/tmp/phc_aggressive_monitor.sh"
-        with open(script_path, 'w') as f:
-            f.write(monitoring_script)
-        
-        # Делаем скрипт исполняемым
-        os.chmod(script_path, 0o755)
-        
-        # Запускаем мониторинг в фоне
-        try:
-            process = subprocess.Popen(
-                ["bash", script_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                preexec_fn=os.setsid  # Отделяем от родительского процесса
-            )
-            
-            print(f"✅ Агрессивный мониторинг запущен (PID: {process.pid})")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Ошибка запуска агрессивного мониторинга: {e}")
-            return False
-    
-    def stop_aggressive_monitoring(self):
-        """Остановка агрессивного мониторинга"""
-        try:
-            print("🛑 Остановка агрессивного мониторинга...")
-            
-            # Останавливаем мониторинг
-            subprocess.run(["pkill", "-f", "phc_aggressive_monitor.sh"], timeout=5)
-            
-            # Останавливаем синхронизацию
-            self.stop_phc_sync()
-            
-            print("✅ Агрессивный мониторинг остановлен")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Ошибка остановки мониторинга: {e}")
-            return False

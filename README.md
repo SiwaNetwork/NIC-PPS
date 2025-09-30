@@ -1,393 +1,349 @@
-# SHIWA NIC-PPS Configuration and Monitoring Tool
+# 🚀 SHIWA NIC-PPS Configuration and Monitoring Tool
 
-**Версия:** 1.2.0  
-**Дата сборки:** 2025-09-10
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/shiwa-time/NIC-PPS)
+[![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-Комплексное решение для конфигурации и мониторинга сетевых карт Intel с поддержкой PPS (Pulse Per Second), TimeNIC, TCXO и PHC синхронизации.
+Инструмент для настройки и мониторинга Intel NIC с поддержкой PPS (Pulse Per Second), PHC (PTP Hardware Clock) синхронизации и TimeNIC карт.
 
-## 🎯 Что нового в v1.2.0
+## ✨ Основные возможности
 
-- ✨ **Современный веб-интерфейс** - обновленный дизайн с градиентами, анимациями и улучшенной навигацией
-- 📊 **Система мониторинга и метрик** - Prometheus метрики, health checks, мониторинг в реальном времени
-- 🧪 **Тестирование** - полное покрытие тестами с pytest и coverage
-- 🔧 **Исправлен мониторинг трафика** - поддержка любых активных интерфейсов (включая WiFi)
-- 🎨 **Улучшенный UX** - быстрые действия, горячие клавиши, адаптивный дизайн
-- 🔧 **Решение проблемы с фронтами PPS** - патч драйвера igc для устранения двойных событий от заднего фронта
-- 🛠 **Автоматические скрипты** - скрипты для применения патча и диагностики проблем с PPS
+### 🎯 Поддерживаемые функции:
 
-## Возможности
+- **PPS конфигурация** - настройка Pulse Per Second сигналов
+- **PHC синхронизация** - синхронизация PTP Hardware Clock между устройствами
+- **TimeNIC поддержка** - работа с Intel I226 картами (SMA, TCXO, PTM)
+- **Автоматический watchdog** - мониторинг и перезапуск phc2sys при сбоях
+- **Диагностика PPS** - проверка привязки к переднему фронту и стабильности
+- **Три интерфейса** - GUI, CLI и WEB для управления системой
 
-- **PPS поддержка**: Настройка и мониторинг PPS сигналов (входной, выходной, оба режима)
-- **TCXO поддержка**: Управление температурно-компенсированными кварцевыми генераторами
-- **PHC синхронизация**: Взаимная синхронизация между PHC часами (`phc2sys`) и синхронизация по внешнему PPS (`ts2phc`)
-- **PTP мониторинг**: Мониторинг PTP трафика и статистики
-- **Многоплатформенность**: GUI, CLI и WEB интерфейсы
-- **Автоматическое обнаружение**: Intel NIC карт и PTP устройств
-- **Современный веб-интерфейс**: Адаптивный дизайн, анимации, быстрые действия
-- **Система метрик**: Prometheus метрики, health checks, мониторинг системы
-- **Универсальный мониторинг**: Поддержка любых сетевых интерфейсов (Ethernet, WiFi)
-- **Тестирование**: Полное покрытие тестами с автоматической проверкой
+### 🔧 Поддерживаемое оборудование:
 
-## Быстрый старт
+- Intel I210 / I211 (базовая поддержка PPS)
+- Intel I226 / TimeNIC (расширенная поддержка: SMA, TCXO, PTM)
+- Другие Intel NIC с поддержкой PTP
 
-### Установка зависимостей
+## 📦 Установка
+
+### Требования:
 
 ```bash
 # Системные пакеты
-sudo apt update
-sudo apt install -y linuxptp gcc build-essential ethtool
+sudo apt-get install -y \
+    python3-venv \
+    python3-pip \
+    linuxptp \
+    ethtool \
+    build-essential
 
-# Python зависимости
+# Опционально для TimeNIC
+sudo apt-get install -y libgpiod-dev
+```
+
+### Установка проекта:
+
+```bash
+# Клонируем репозиторий
+git clone https://github.com/shiwa-time/NIC-PPS.git
+cd NIC-PPS
+
+# Создаем виртуальное окружение
+python3 -m venv venv
+source venv/bin/activate
+
+# Устанавливаем зависимости
 pip install -r requirements.txt
+
+# Настраиваем sudo права (один раз)
+bash scripts/setup_sudo_permissions.sh
 ```
 
-### Настройка sudo прав
+## 🚀 Быстрый старт
+
+### 1. GUI интерфейс:
 
 ```bash
-# Создание файла sudoers для PPS команд
-echo 'shiwa-time ALL=(ALL) NOPASSWD: /usr/bin/testptp, /usr/bin/phc_ctl, /usr/bin/ts2phc, /usr/bin/phc2sys' | sudo tee /etc/sudoers.d/nic-pps
-
-# Проверка прав
-sudo -n testptp -d /dev/ptp0 -l
-```
-
-### Запуск приложения
-
-```bash
-# GUI интерфейс
 python run.py --gui
-
-# CLI интерфейс
-python run.py --cli
-
-# WEB интерфейс
-python run.py --web
-# Откройте браузер: http://localhost:5000
 ```
 
-## Использование
+**Возможности GUI:**
+- ✅ Визуальная настройка PPS режимов
+- ✅ Управление PHC синхронизацией
+- ✅ Кнопка "🔍 Диагностика PPS" для проверки системы
+- ✅ Мониторинг в реальном времени
+- ✅ Настройка TimeNIC параметров
 
-### CLI команды
+### 2. WEB интерфейс:
 
 ```bash
-# Список всех NIC карт
+python run.py --web
+# Откройте http://localhost:5000 в браузере
+```
+
+**Преимущества WEB:**
+- ✅ Удаленный доступ через браузер
+- ✅ Адаптивный дизайн
+- ✅ Real-time обновления через WebSocket
+- ✅ Графики и метрики
+- ✅ Не требует X11
+
+### 3. CLI интерфейс:
+
+```bash
+# Диагностика PPS
+python run.py --cli timenic check-pps
+
+# Список карт
+python run.py --cli timenic list-timenics
+
+# Установка PPS режима
+python run.py --cli timenic set-pps enp3s0 --mode output
+
+# Синхронизация PHC
+python run.py --cli timenic start-phc-sync enp3s0
+
+# Статус системы
+python run.py --cli timenic status
+```
+
+## 📊 Основные команды
+
+### TimeNIC команды:
+
+```bash
+# Полная диагностика PPS и phc2sys
+python run.py --cli timenic check-pps
+
+# Список всех TimeNIC карт
+python run.py --cli timenic list-timenics
+
+# Информация о конкретной карте
+python run.py --cli timenic info enp3s0
+
+# Установка PPS режима (disabled, input, output, both)
+python run.py --cli timenic set-pps enp3s0 --mode output
+
+# Список PTP устройств
+python run.py --cli timenic list-ptp
+
+# Чтение PPS событий
+python run.py --cli timenic read-pps /dev/ptp0 --count 5
+
+# Установка периода PPS (в наносекундах)
+python run.py --cli timenic set-period /dev/ptp0 --period 1000000000
+
+# Синхронизация PHC с системным временем
+python run.py --cli timenic sync-phc enp3s0
+
+# Запуск синхронизации PHC по внешнему PPS
+python run.py --cli timenic start-phc-sync enp3s0
+
+# Включение PTM
+python run.py --cli timenic enable-ptm enp3s0
+
+# Мониторинг карты
+python run.py --cli timenic monitor enp3s0 --interval 1
+
+# Создание systemd сервиса
+sudo python run.py --cli timenic create-service
+
+# Общий статус системы
+python run.py --cli timenic status
+```
+
+### Обычные NIC команды:
+
+```bash
+# Диагностика
+python run.py --cli check-pps
+
+# Список всех карт
 python run.py --cli list-nics
 
-# Настройка PPS режима
-python run.py --cli set-pps enp3s0 --mode output
+# Информация о карте
+python run.py --cli info enp3s0
 
-# PHC синхронизация
-python run.py --cli start-phc-sync /dev/ptp0 /dev/ptp1
-python run.py --cli start-ts2phc-sync enp3s0 /dev/ptp0
-
-# Мониторинг
-python run.py --cli monitor enp3s0 --interval 1
-
-# Статус
-python run.py --cli status
-```
-
-### TimeNIC команды
-
-```bash
-# TimeNIC PPS настройка
-python run.py --cli timenic set-pps enp3s0 --mode both
-
-# TimeNIC PHC синхронизация
-python run.py --cli timenic start-phc-sync /dev/ptp0 /dev/ptp1
-python run.py --cli timenic start-ts2phc-sync enp3s0 /dev/ptp0
-```
-
-### Веб-интерфейс
-
-Современный веб-интерфейс с множеством возможностей:
-
-#### 🎨 **Современный дизайн**
-- Градиентные фоны и стеклянные эффекты
-- Плавные анимации и переходы
-- Адаптивный дизайн для всех устройств
-- Темная тема с автоматическим переключением
-
-#### 🚀 **Быстрые действия**
-- **Обновить все** - обновление всех данных
-- **Запустить мониторинг** - переход к мониторингу
-- **Проверить систему** - переход к метрикам
-- **Экспорт логов** - экспорт системных логов
-
-#### ⌨️ **Горячие клавиши**
-- `Alt + 1` - Обзор
-- `Alt + 2` - TimeNIC  
-- `Alt + 3` - Настройки
-- `Alt + 4` - Метрики
-- `Alt + 5` - Мониторинг
-
-#### 📊 **Мониторинг и метрики**
-- **Prometheus метрики** - `/metrics` endpoint
-- **Health checks** - `/api/health` endpoint
-- **Мониторинг трафика** - поддержка любых интерфейсов
-- **Реальное время** - обновление каждые 2 секунды
-
-#### 🔧 **Универсальный мониторинг**
-- Автоматическое определение активных интерфейсов
-- Поддержка Ethernet и WiFi интерфейсов
-- Графики трафика в реальном времени
-- Статистика PTP и сетевого трафика
-
-## Установка драйвера Intel IGC
-
-### Шаг 1: Установка драйвера
-
-```bash
-chmod +x install_igc_pps.sh
-sudo ./install_igc_pps.sh
-```
-
-### Шаг 2: Перезагрузка
-
-```bash
-sudo reboot
-```
-
-### Шаг 3: Настройка PPS
-
-```bash
-# Интерактивная настройка
-sudo ./configure_pps.sh
-
-# Или быстрая настройка
-sudo ./quick_pps_setup.sh
-```
-
-## Описание PPS
-
-### Для Intel I210 (основная сетевая карта):
-- **SDP0** - PPS выход на разъем INTEL I210, генерирует сигнал 1PPS (1 импульс в секунду)
-- **SDP1** - PPS вход, принимает внешний PPS сигнал
-
-### Для TimeNIC (SMA разъемы):
-- **SMA1** - PPS выход, генерирует сигнал 1PPS
-- **SMA2** - PPS вход, принимает внешний PPS сигнал
-
-## PHC синхронизация
-
-### Mutual PHC Synchronization (phc2sys)
-
-Синхронизация между двумя PTP Hardware Clocks:
-
-```bash
-# Запуск взаимной синхронизации
-python run.py --cli start-phc-sync /dev/ptp0 /dev/ptp1
-
-# Проверка статуса
-python run.py --cli sync-status
-
-# Остановка
-python run.py --cli stop-phc-sync
-```
-
-### External PPS Synchronization (ts2phc)
-
-Синхронизация PHC по внешнему PPS сигналу:
-
-```bash
-# Запуск синхронизации по внешнему PPS
-python run.py --cli start-ts2phc-sync enp3s0 /dev/ptp0
-
-# Остановка
-python run.py --cli stop-ts2phc-sync
-```
-
-## Тестирование
-
-```bash
-# Запуск всех тестов
-python run_tests.py
-
-# Запуск с покрытием
-python run_tests.py --coverage
-
-# Запуск конкретных тестов
-pytest tests/test_nic_manager.py
-pytest tests/test_web_app.py
-pytest tests/test_metrics.py
-```
-
-## Проверка установки
-
-```bash
-# Проверка драйвера
-modinfo igc | grep filename
-ethtool -i enp3s0
-
-# Проверка PPS
-sudo testptp -d /dev/ptp0 -l
-
-# Проверка PTP устройств
-ls /dev/ptp*
-
-# Проверка веб-интерфейса
-curl http://localhost:5000/api/health
-curl http://localhost:5000/api/interfaces/active
-```
-
-## 🔧 Решение проблемы с фронтами PPS
-
-### Проблема
-При использовании PPS входа на TimeNIC картах может возникать проблема, когда задний фронт PPS NIC карты привязывается к переднему фронту основных часов. Это происходит из-за того, что драйвер igc по умолчанию может детектировать оба фронта PPS сигнала.
-
-### ✅ Автоматическое решение (встроено в программу)
-
-**Теперь исправление работает автоматически во всех версиях программы!**
-
-```bash
-# Тестирование встроенной фильтрации
-python scripts/test_pps_filtering.py
-
-# Чтение PPS событий с автоматической фильтрацией
-python run.py --cli timenic read-pps /dev/ptp0 --count 10 --show-filtered
-
-# Мониторинг в реальном времени с фильтрацией
-python run.py --cli timenic monitor-pps /dev/ptp0 --duration 30
-```
-
-### Что делает встроенное решение
-
-- **Автоматическая фильтрация**: Все PPS события автоматически фильтруются на уровне приложения
-- **Устранение двойных фронтов**: События с интервалом менее 0.5 сек отфильтровываются
-- **Статистика фильтрации**: Показывает количество отфильтрованных событий
-- **Работает везде**: Не требует патча драйвера, работает на любой системе
-
-### Дополнительное решение (патч драйвера)
-
-Если нужна максимальная точность, можно дополнительно применить патч драйвера:
-
-```bash
-# Применение патча драйвера (требует root)
-sudo scripts/apply_igc_patch.sh
-
-# Диагностика проблемы
-python scripts/diagnose_pps_edges.py
-
-# Откат к оригинальному драйверу
-sudo scripts/apply_igc_patch.sh --revert
-```
-
-Подробное описание патча см. в [docs/DRIVER_PATCH_GUIDE.md](docs/DRIVER_PATCH_GUIDE.md)
-
-## Дополнительные команды
-
-### Чтение PPS событий
-
-```bash
-sudo testptp -d /dev/ptp0 -e 10  # читает 10 событий
-```
-
-### Изменение частоты PPS выхода
-
-```bash
-# 10 Гц (100ms период)
-sudo testptp -d /dev/ptp0 -p 100000000
-
-# 0.5 Гц (2 секунды период)  
-sudo testptp -d /dev/ptp0 -p 2000000000
-```
-
-### Ручное управление PPS
-
-```bash
-# Включение выходного PPS
-sudo testptp -d /dev/ptp0 -L0,2
-sudo testptp -d /dev/ptp0 -p 1000000000
-
-# Включение входного PPS
-sudo testptp -d /dev/ptp0 -L1,1
-
-# Отключение PPS
-sudo testptp -d /dev/ptp0 -p 0
-sudo testptp -d /dev/ptp0 -L0,0
-sudo testptp -d /dev/ptp0 -L1,0
-```
-
-## Требования
-
-- Ubuntu/Debian Linux
-- Сетевая карта Intel с чипом IGC (i225/i226)
-- Python 3.8+
-- Права root для установки
-- DKMS для сборки драйвера
-- Установленные утилиты: `ethtool`, `testptp`, `phc_ctl`, `ts2phc`, `phc2sys`
-
-## Устранение проблем
-
-### Драйвер не загрузился
-
-```bash
-# Проверка загруженного модуля
-lsmod | grep igc
-
-# Ручная загрузка
-sudo modprobe igc
-
-# Проверка логов
-dmesg | grep igc
-```
-
-### PPS не работает
-
-```bash
-# Проверка текущего состояния PPS
-sudo testptp -d /dev/ptp0 -l
-
-# Проверка sudo прав
-sudo -n testptp -d /dev/ptp0 -l
-
-# Проверка PTP устройства
-ethtool -T enp3s0
-```
-
-### PHC синхронизация не работает
-
-```bash
-# Проверка процессов синхронизации
-ps aux | grep -E "(phc2sys|ts2phc)"
-
-# Проверка PTP устройств
-ls /dev/ptp*
-
-# Проверка статуса синхронизации
+# Статус синхронизации
 python run.py --cli sync-status
 ```
 
-## Документация
+## 🔧 Прямые скрипты
 
-Подробная документация находится в папке `docs/`:
+### 1. Диагностика PPS:
 
-- [Основная документация](docs/README.md)
-- [TimeNIC команды](docs/timenic_pps_commands.md)
-- [Настройка TimeNIC](docs/TIMENIC_SETUP.md)
-- [Устранение неполадок](TROUBLESHOOTING.md)
-- [История изменений](CHANGELOG.md)
+```bash
+python scripts/check_pps_edge.py
+```
 
-## История версий
+Проверяет:
+- ✅ Запущен ли phc2sys
+- ✅ Привязка к переднему фронту (восходящий edge)
+- ✅ Стабильность phc2sys (0 падений)
 
-### v1.2.0 (2025-09-10)
-- ✨ **Современный веб-интерфейс**: Обновленный дизайн с градиентами, анимациями и улучшенной навигацией
-- 📊 **Система мониторинга и метрик**: Prometheus метрики, health checks, мониторинг в реальном времени
-- 🧪 **Тестирование**: Полное покрытие тестами с pytest и coverage
-- 🔧 **Исправлен мониторинг трафика**: Поддержка любых активных интерфейсов (включая WiFi)
-- 🎨 **Улучшенный UX**: Быстрые действия, горячие клавиши, адаптивный дизайн
-- 🚀 **Новые возможности**: Универсальный мониторинг, автоматическое определение интерфейсов
+### 2. Watchdog мониторинг:
 
-### v1.1.0 (2025-09-09)
-- 🐛 **Критическое исправление**: Исправлено определение PTP устройства для Intel I210
-- ✨ **Система версионирования**: Добавлено отображение версии в GUI, веб-интерфейсе и API
-- 🔧 **Улучшения**: Исправлены проблемы с кнопками включения/выключения PPS в GUI
-- 📚 **Документация**: Обновлена документация с актуальной информацией
+```bash
+# Запускается автоматически через GUI/WEB
+# Или вручную:
+bash scripts/phc_watchdog.sh /dev/ptp2 /dev/ptp0 0 16
+```
 
-### v1.0.0 (2025-09-09)
-- 🎉 **Первоначальный релиз**
-- 🖥️ **Интерфейсы**: GUI (PyQt6), CLI, WEB (Flask)
-- ⚡ **PPS поддержка**: Настройка и мониторинг PPS сигналов
-- 🔄 **PHC синхронизация**: phc2sys и ts2phc
-- 📊 **Мониторинг**: PTP трафик, статистика, реальное время
-- 🔧 **Поддержка**: Intel NIC карты, TimeNIC, TCXO
+Параметры:
+- `source_ptp` - источник времени (например, /dev/ptp2)
+- `target_ptp` - целевое устройство (например, /dev/ptp0)
+- `offset_ns` - смещение в наносекундах (0 для без смещения)
+- `rate` - частота обновления в Гц (16 рекомендуется)
+
+### 3. Исправление PPS края:
+
+```bash
+bash scripts/fix_pps_edge.sh /dev/ptp0 1
+```
+
+Настраивает пин только на восходящий фронт.
+
+## 🏗️ Архитектура проекта
+
+```
+NIC-PPS/
+├── core/                       # Основная логика
+│   ├── nic_manager.py         # Менеджер Intel NIC
+│   ├── timenic_manager.py     # Менеджер TimeNIC
+│   └── pps_edge_filter.py     # Фильтрация PPS событий
+├── gui/                        # GUI интерфейс (PyQt6)
+│   └── main.py                # Главное окно
+├── web/                        # WEB интерфейс (Flask)
+│   ├── app.py                 # Flask приложение
+│   ├── templates/             # HTML шаблоны
+│   └── static/                # CSS, JS, изображения
+├── cli/                        # CLI интерфейс (Click)
+│   ├── main.py                # CLI для обычных NIC
+│   └── timenic_cli.py         # CLI для TimeNIC
+├── scripts/                    # Утилиты и скрипты
+│   ├── check_pps_edge.py      # Диагностика PPS
+│   ├── phc_watchdog.sh        # Watchdog для phc2sys
+│   ├── fix_pps_edge.sh        # Исправление PPS края
+│   ├── setup_sudo_permissions.sh  # Настройка sudo
+│   └── deprecated/            # Устаревшие скрипты
+├── docs/                       # Документация
+├── tests/                      # Тесты
+├── run.py                      # Главный запускатель
+├── requirements.txt            # Python зависимости
+├── SETUP_GUIDE.md             # Подробное руководство
+└── README.md                   # Этот файл
+```
+
+## 🐛 Устранение неполадок
+
+### Проблема: phc2sys не запускается
+
+**Решение:**
+```bash
+# 1. Проверьте sudo права
+sudo -n phc2sys --help
+
+# 2. Если требует пароль:
+bash scripts/setup_sudo_permissions.sh
+
+# 3. Проверьте устройства
+ls -la /dev/ptp*
+
+# 4. Проверьте драйверы
+lsmod | grep -E "ptp|igc|i210"
+```
+
+### Проблема: PPS привязывается к заднему фронту
+
+**Решение:**
+```bash
+# Используйте скрипт исправления
+bash scripts/fix_pps_edge.sh /dev/ptp0 1
+
+# Проверьте результат
+python scripts/check_pps_edge.py
+```
+
+### Проблема: rate=0.0 ошибка
+
+**Исправлено в версии 1.2.0!**
+- Теперь rate по умолчанию 16 Гц
+- Диапазон: 1.0 - 1000.0 Гц
+- Валидация в watchdog скрипте
+
+### Проблема: GUI крашится
+
+**Решение:**
+```bash
+# Используйте WEB интерфейс как альтернативу
+python run.py --web
+
+# Или запустите GUI с отладкой
+python run.py --gui 2>&1 | tee gui_debug.log
+```
+
+## 📈 История изменений
+
+### Версия 1.2.0 (30.09.2025)
+
+**🔧 Исправления:**
+- ✅ Исправлен `rate=0.0` bug - теперь по умолчанию 16 Гц
+- ✅ Исправлен watchdog - правильная проверка процессов
+- ✅ Добавлена валидация rate в phc_watchdog.sh
+- ✅ Настройка sudo прав через скрипт
+
+**✨ Новые возможности:**
+- ✅ Кнопка "🔍 Диагностика PPS" в GUI
+- ✅ Команда `check-pps` в CLI
+- ✅ Скрипт `setup_sudo_permissions.sh`
+- ✅ Tooltip для поля rate в GUI
+
+**🧹 Очистка кода:**
+- ✅ Удалено 168 строк мертвого кода (-9.7%)
+- ✅ Удалены устаревшие методы агрессивного мониторинга
+- ✅ Перемещены устаревшие скрипты в `scripts/deprecated/`
+
+### Версия 1.1.0
+
+- ✅ Добавлена поддержка TimeNIC
+- ✅ Watchdog мониторинг для phc2sys
+- ✅ WEB интерфейс
+
+### Версия 1.0.0
+
+- ✅ Базовая поддержка Intel NIC
+- ✅ GUI и CLI интерфейсы
+- ✅ PPS конфигурация
+
+## 📚 Дополнительная документация
+
+- [SETUP_GUIDE.md](SETUP_GUIDE.md) - Подробное руководство по настройке
+- [docs/DRIVER_PATCH_GUIDE.md](docs/DRIVER_PATCH_GUIDE.md) - Патчинг драйвера igc
+- [docs/timenic_pps_commands.md](docs/timenic_pps_commands.md) - Команды для TimeNIC
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Устранение неполадок
+- [scripts/deprecated/README.md](scripts/deprecated/README.md) - Устаревшие скрипты
+
+## 🤝 Вклад в проект
+
+Приветствуются pull requests! Для больших изменений сначала откройте issue для обсуждения.
+
+## 📝 Лицензия
+
+[MIT](LICENSE)
+
+## 👥 Авторы
+
+- **SHIWA Team** - [GitHub](https://github.com/shiwa-time)
+
+## 🙏 Благодарности
+
+- Linux PTP проект за `linuxptp` утилиты
+- Intel за документацию по PTP Hardware Clock
+- Сообщество open source за поддержку
+
+## 📧 Контакты
+
+Если у вас есть вопросы или предложения, создайте issue на GitHub.
+
+---
+
+**Made with ❤️ by SHIWA Team**

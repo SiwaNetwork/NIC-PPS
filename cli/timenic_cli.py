@@ -672,6 +672,37 @@ def config(output):
 
 
 @timenic.command()
+@click.option('--duration', default=30, help='Длительность проверки стабильности в секундах')
+def check_pps(duration):
+    """Диагностика PPS и phc2sys"""
+    try:
+        # Импортируем скрипт диагностики
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "check_pps_edge.py")
+        
+        if not os.path.exists(script_path):
+            console.print(f"[red]Скрипт диагностики не найден: {script_path}[/red]")
+            return
+        
+        # Запускаем диагностику
+        console.print("[blue]Запуск диагностики PPS и phc2sys...[/blue]")
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+        
+        # Выводим результат
+        if result.stdout:
+            console.print(result.stdout)
+        if result.stderr:
+            console.print(f"[red]{result.stderr}[/red]")
+            
+        if result.returncode == 0:
+            console.print("[green]✅ Диагностика завершена успешно[/green]")
+        else:
+            console.print("[red]❌ Обнаружены проблемы в диагностике[/red]")
+            
+    except Exception as e:
+        console.print(f"[red]Ошибка диагностики: {e}[/red]")
+
+
+@timenic.command()
 def status():
     """Общий статус TimeNIC системы"""
     try:

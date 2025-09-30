@@ -153,6 +153,7 @@ CLI команды (обычные NIC):
     list-nics          Список всех NIC карт
     info <interface>   Информация о карте
     set-pps <interface> --mode <mode>  Установка PPS режима
+    check-pps [--duration <sec>]  Диагностика PPS и phc2sys
     monitor <interface> --interval <sec>  Мониторинг
     status             Общий статус
 
@@ -170,6 +171,7 @@ CLI команды (TimeNIC):
     timenic start-phc-sync <interface>  Запуск синхронизации PHC по внешнему PPS
     timenic enable-ptm <interface>  Включение PTM
     timenic monitor <interface> --interval <sec>  Мониторинг
+    timenic check-pps [--duration <sec>]  Диагностика PPS и phc2sys
     timenic create-service  Создание systemd сервиса
     timenic status          Общий статус TimeNIC системы
 

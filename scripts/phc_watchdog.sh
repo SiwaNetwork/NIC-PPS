@@ -14,6 +14,12 @@ TARGET_PTP="${2:-/dev/ptp0}"
 OFFSET="${3:-0}"
 RATE="${4:-16}"
 
+# Валидация RATE (должен быть >= 1)
+if (( $(echo "$RATE <= 0" | bc -l) )); then
+    echo "⚠️ Неверный RATE: $RATE, используем значение по умолчанию: 16"
+    RATE=16
+fi
+
 log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
@@ -22,18 +28,24 @@ start_phc2sys() {
     log_message "🚀 Запуск phc2sys: $SOURCE_PTP -> $TARGET_PTP (offset=$OFFSET, rate=$RATE)"
     
     # Убиваем старые процессы
-    pkill -9 phc2sys 2>/dev/null
+    sudo pkill -9 phc2sys 2>/dev/null || true
     sleep 1
     
-    # Запускаем phc2sys в фоне
-    phc2sys -c "$TARGET_PTP" -s "$SOURCE_PTP" -O "$OFFSET" -R "$RATE" -m > /tmp/phc2sys.log 2>&1 &
+    # Применяем offset если нужен
+    if [ "$OFFSET" != "0" ] && [ -n "$OFFSET" ]; then
+        OFFSET_SEC=$(echo "scale=9; $OFFSET/1000000000" | bc -l)
+        log_message "🔧 Применение offset: $OFFSET нс ($OFFSET_SEC сек)"
+        sudo phc_ctl "$TARGET_PTP" -- adj "$OFFSET_SEC" 2>/dev/null || log_message "⚠️ phc_ctl не удался"
+    fi
+    
+    # Запускаем phc2sys с sudo в фоне (без перенаправления, чтобы видеть вывод в терминале)
+    sudo phc2sys -c "$TARGET_PTP" -s "$SOURCE_PTP" -O 0 -R "$RATE" -m &
     PHC_PID=$!
     
     # Проверяем что процесс запустился
-    sleep 1
-    if kill -0 $PHC_PID 2>/dev/null; then
-        log_message "✅ phc2sys запущен (PID: $PHC_PID)"
-        echo $PHC_PID > /tmp/phc2sys.pid
+    sleep 2
+    if sudo pgrep phc2sys > /dev/null 2>&1; then
+        log_message "✅ phc2sys запущен успешно (PID: $(sudo pgrep phc2sys))"
         return 0
     else
         log_message "❌ Не удалось запустить phc2sys"
@@ -42,17 +54,9 @@ start_phc2sys() {
 }
 
 check_phc2sys() {
-    # Проверяем наличие процесса
-    if pgrep -x phc2sys > /dev/null; then
-        # Дополнительная проверка - читаем вывод
-        if [ -f /tmp/phc2sys.log ]; then
-            # Проверяем что лог обновляется (активность за последние 30 секунд)
-            if [ -n "$(find /tmp/phc2sys.log -mtime -30s 2>/dev/null)" ]; then
-                return 0  # Процесс работает
-            fi
-        else
-            return 0  # Процесс есть, лог пока не важен
-        fi
+    # Проверяем наличие процесса phc2sys
+    if sudo pgrep phc2sys > /dev/null 2>&1; then
+        return 0  # Процесс работает
     fi
     return 1  # Процесс не работает
 }

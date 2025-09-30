@@ -704,12 +704,13 @@ class ConfigurationWidget(QWidget):
         """)
         sync_layout.addWidget(self.phc_offset_nanoseconds, 3, 1)
         
-        sync_layout.addWidget(QLabel("Скорость коррекции:"), 4, 0)
+        sync_layout.addWidget(QLabel("Частота обновления (Гц):"), 4, 0)
         self.phc_rate = QDoubleSpinBox()
-        self.phc_rate.setRange(0.0, 1.0)
-        self.phc_rate.setDecimals(3)
-        self.phc_rate.setSingleStep(0.001)
-        self.phc_rate.setValue(0.0)
+        self.phc_rate.setRange(1.0, 1000.0)
+        self.phc_rate.setDecimals(1)
+        self.phc_rate.setSingleStep(1.0)
+        self.phc_rate.setValue(16.0)
+        self.phc_rate.setToolTip("Частота обновления синхронизации (1-1000 Гц). Рекомендуется: 16 Гц")
         self.phc_rate.setStyleSheet("""
             QDoubleSpinBox {
                 padding: 8px;
@@ -1049,6 +1050,27 @@ class TimeNICConfigurationWidget(QWidget):
         self.apply_pps_btn.clicked.connect(self.apply_pps_settings)
         pps_layout.addWidget(self.apply_pps_btn, 3, 0, 1, 2)
         
+        # Кнопка диагностики PPS
+        self.check_pps_btn = QPushButton("🔍 Диагностика PPS")
+        self.check_pps_btn.clicked.connect(self.check_pps_diagnostics)
+        self.check_pps_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2196F3, stop:1 #1976D2);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #42A5F5, stop:1 #2196F3);
+            }
+        """)
+        pps_layout.addWidget(self.check_pps_btn, 4, 0, 1, 2)
+        
         pps_group.setLayout(pps_layout)
         layout.addWidget(pps_group)
         
@@ -1208,6 +1230,65 @@ class TimeNICConfigurationWidget(QWidget):
                 QMessageBox.warning(self, "Ошибка", f"Не удалось применить все настройки для {timenic_name}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка при применении настроек: {e}")
+    
+    def check_pps_diagnostics(self):
+        """Запуск диагностики PPS и phc2sys"""
+        try:
+            import subprocess
+            import sys
+            import os
+            
+            # Путь к скрипту диагностики
+            script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "check_pps_edge.py")
+            
+            if not os.path.exists(script_path):
+                QMessageBox.critical(self, "Ошибка", f"Скрипт диагностики не найден: {script_path}")
+                return
+            
+            # Запускаем диагностику
+            result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=60)
+            
+            # Создаем диалог с результатами
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("🔍 Диагностика PPS и phc2sys")
+            dialog.setModal(True)
+            dialog.resize(800, 600)
+            
+            layout = QVBoxLayout()
+            
+            # Текстовое поле с результатами
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setFont(QFont("Consolas", 10))
+            
+            # Добавляем результат
+            output = result.stdout if result.stdout else "Нет вывода"
+            if result.stderr:
+                output += f"\n\nОшибки:\n{result.stderr}"
+            
+            text_edit.setPlainText(output)
+            layout.addWidget(text_edit)
+            
+            # Кнопка закрытия
+            close_btn = QPushButton("Закрыть")
+            close_btn.clicked.connect(dialog.accept)
+            layout.addWidget(close_btn)
+            
+            dialog.setLayout(layout)
+            dialog.exec()
+            
+            # Показываем статус
+            if result.returncode == 0:
+                QMessageBox.information(self, "Диагностика завершена", "✅ Все проверки пройдены успешно!")
+            else:
+                QMessageBox.warning(self, "Диагностика завершена", "⚠️ Обнаружены проблемы в диагностике")
+                
+        except subprocess.TimeoutExpired:
+            QMessageBox.critical(self, "Ошибка", "Диагностика превысила время ожидания (60 сек)")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка запуска диагностики: {e}")
     
     def start_phc_sync(self):
         """Запуск синхронизации PHC"""
