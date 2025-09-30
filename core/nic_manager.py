@@ -43,6 +43,7 @@ class IntelNICManager:
     
     def __init__(self):
         self.nic_list = []
+        self.watchdog_pid = None
         self._discover_nics()
     
     def _discover_nics(self):
@@ -1023,6 +1024,9 @@ done
         try:
             print("Остановка синхронизации PHC...")
             
+            # Останавливаем watchdog
+            self.stop_phc_watchdog()
+            
             # Ищем и убиваем процессы phc2sys (без sudo)
             cmd = ["pkill", "-f", "phc2sys"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
@@ -1259,6 +1263,8 @@ done
                     pps_success = self.set_pps_mode(target_interface, PPSMode.OUTPUT)
                     if pps_success:
                         print("✅ PPS output включен - система готова к привязке к переднему фронту")
+                        # Небольшая задержка для стабилизации PPS
+                        time.sleep(0.5)
                     else:
                         print("⚠️ Не удалось включить PPS output, но продолжаем...")
                 else:
@@ -1266,6 +1272,10 @@ done
             except Exception as e:
                 print(f"⚠️ Ошибка при включении PPS output: {e}")
                 print("Продолжаем без PPS output...")
+            
+            # Запускаем watchdog для автоматического перезапуска
+            print("🔍 Запуск watchdog для мониторинга phc2sys...")
+            self.start_phc_watchdog(source_ptp, target_ptp, offset_ns, rate)
             
             # Применяем компенсацию через phc_ctl если offset не равен 0
             if offset_ns != 0:
@@ -1555,9 +1565,62 @@ done
         print("❌ Не удалось стабилизировать синхронизацию после всех попыток")
         return False
     
+    def start_phc_watchdog(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
+        """Запуск watchdog для автоматического мониторинга и перезапуска phc2sys"""
+        try:
+            # Останавливаем старый watchdog если есть
+            self.stop_phc_watchdog()
+            
+            # Путь к скрипту watchdog
+            script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "phc_watchdog.sh")
+            
+            if not os.path.exists(script_path):
+                print(f"⚠️ Watchdog скрипт не найден: {script_path}")
+                return False
+            
+            # Запускаем watchdog в фоне
+            cmd = [script_path, source_ptp, target_ptp, str(offset_ns), str(rate)]
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            
+            # Сохраняем PID watchdog
+            self.watchdog_pid = process.pid
+            
+            print(f"✅ PHC Watchdog запущен (PID: {process.pid})")
+            print(f"📊 Мониторинг: {source_ptp} -> {target_ptp}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка запуска watchdog: {e}")
+            return False
+    
+    def stop_phc_watchdog(self):
+        """Остановка watchdog мониторинга"""
+        try:
+            # Читаем PID из файла
+            pid_file = "/tmp/phc_watchdog.pid"
+            if os.path.exists(pid_file):
+                with open(pid_file, 'r') as f:
+                    pid = f.read().strip()
+                    if pid:
+                        subprocess.run(["kill", "-9", pid], stderr=subprocess.DEVNULL)
+                        print(f"✅ Watchdog остановлен (PID: {pid})")
+                os.remove(pid_file)
+            
+            # Также останавливаем все процессы phc_watchdog.sh
+            subprocess.run(["pkill", "-9", "-f", "phc_watchdog.sh"], stderr=subprocess.DEVNULL)
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка остановки watchdog: {e}")
+    
     def start_aggressive_monitoring(self, source_ptp, target_ptp, offset_ns=0, rate=16.0):
-        """Агрессивный мониторинг и автоматический перезапуск синхронизации"""
-        print("🚨 Запуск агрессивного мониторинга синхронизации PHC...")
+        """УСТАРЕВШИЙ МЕТОД - используйте start_phc_watchdog"""
+        print("⚠️ start_aggressive_monitoring устарел, используется start_phc_watchdog")
+        return self.start_phc_watchdog(source_ptp, target_ptp, offset_ns, rate)
         
         # Запускаем фоновый процесс мониторинга
         monitoring_script = f"""#!/bin/bash
